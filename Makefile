@@ -1,9 +1,14 @@
 OPAMPKGS=coq coq-ext-lib coq-paco coq-ceres coq-flocq dune menhir qcheck
 
-all: vellvm
-	coqc SystemF.v
+.PHONY: opam update-submodules vellvm all cofq
+all: vellvm cofq
 
-.PHONY: opam update-submodules vellvm
+cofq: CoqMakefile
+	make -f CoqMakefile
+
+CoqMakefile:
+	coq_makefile -f _CoqProject -o CoqMakefile
+
 opam:
 	opam install $(OPAMPKGS)
 

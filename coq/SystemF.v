@@ -81,3 +81,5 @@ Fixpoint term_subst (v : VarInd) (body arg : Term) : Term :=
   | If0 c e1 e2 => If0 (term_subst v c arg) (term_subst v e1 arg) (term_subst v e2 arg)
   | Op op e1 e2 => Op op (term_subst v e1 arg) (term_subst v e2 arg)
   end.
+
+Require Import ITree.
