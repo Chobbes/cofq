@@ -1,0 +1,3 @@
+[submodule "vellvm"]
+	path = vellvm
+	url = git@github.com:vellvm/vellvm.git
