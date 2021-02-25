@@ -2,8 +2,16 @@ From Coq Require Import
      ZArith
      List.
 
+Require Import Vellvm.Numeric.Integers.
+
 Notation TypeInd := N.
 Notation VarInd  := N.
+
+Class FInt I : Type :=
+  { add : I -> I -> I;
+    sub : I -> I -> I;
+    mul : I -> I -> I;
+  }.
 
 Inductive FType : Set :=
 | Arrow   : FType -> FType -> FType
@@ -11,7 +19,7 @@ Inductive FType : Set :=
 | TForall : FType -> FType
 | TVar    : TypeInd -> FType
 (* Base Types *)
-| Int64   : FType
+| IntType   : FType
 .
 
 Inductive PrimOp : Set :=
@@ -20,7 +28,7 @@ Inductive PrimOp : Set :=
 | Sub
 .
 
-Inductive Term : Set :=
+Inductive Term {I} `{FInt I} : Set :=
 | Var          : VarInd -> Term
 (* Annotated terms *)
 | Ann          : Term -> FType -> Term
@@ -34,8 +42,7 @@ Inductive Term : Set :=
 | Tuple        : list Term -> Term 
 | ProjN        : N -> Term -> Term
 (* Int *)
-(* TODO        : Make this actually an i64 *)
-| Num          : N -> Term
+| Num          : Int64.int -> Term
 (* Expressions *)
 | If0          : Term -> Term -> Term -> Term
 | Op           : PrimOp -> Term -> Term -> Term
@@ -45,7 +52,7 @@ Definition TypeContext := N.
 Definition TermContext := list FType.
 
 (* Lift by 2 because fixpoint has a argument in addition to referring to itself *)
-Fixpoint term_lift (n : N) (term : Term) : Term :=
+Fixpoint term_lift {I} `{FInt I} (n : N) (term : Term) : Term :=
   match term with
   | Var x =>
     if N.ltb x n
@@ -63,7 +70,7 @@ Fixpoint term_lift (n : N) (term : Term) : Term :=
   | Op op e1 e2 => Op op (term_lift n e1) (term_lift n e2)
   end.
 
-Fixpoint term_subst (v : VarInd) (body arg : Term) : Term :=
+Fixpoint term_subst {I} `{FInt I} (v : VarInd) (body arg : Term) : Term :=
   match body with
   | Var x =>
     if N.eqb x v
@@ -82,4 +89,12 @@ Fixpoint term_subst (v : VarInd) (body arg : Term) : Term :=
   | Op op e1 e2 => Op op (term_subst v e1 arg) (term_subst v e2 arg)
   end.
 
-Require Import ITree.
+Definition eval_primop {I} `{FInt I} (op : PrimOp) : (I -> I -> I) :=
+  match op with
+  | Mul => mul
+  | Add => add
+  | Sub => sub
+  end.
+
+Definition eval_op {I } `{FInt I} (op : PrimOp) (x y : I) : I :=
+  eval_primop op x y.
