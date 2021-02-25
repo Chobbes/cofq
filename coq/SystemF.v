@@ -3,14 +3,32 @@ From Coq Require Import
      List.
 
 Require Import Vellvm.Numeric.Integers.
+Require Import Lia.
+
+From ExtLib Require Import
+     Structures.Monads
+     Structures.Functor
+     Eqv.
+
+From ITree Require Import
+     Basics
+     ITree
+     Interp.Recursion
+     Events.Exception.
+
+Import MonadNotation.
+Local Open Scope monad_scope.
+
 
 Notation TypeInd := N.
 Notation VarInd  := N.
 
 Class FInt I : Type :=
-  { add : I -> I -> I;
-    sub : I -> I -> I;
-    mul : I -> I -> I;
+  { add  : I -> I -> I;
+    sub  : I -> I -> I;
+    mul  : I -> I -> I;
+    eq   : I -> I -> bool;
+    zero : I;
   }.
 
 Inductive FType : Set :=
@@ -28,7 +46,7 @@ Inductive PrimOp : Set :=
 | Sub
 .
 
-Inductive Term {I} `{FInt I} : Set :=
+Inductive Term {I} `{FInt I} : Type :=
 | Var          : VarInd -> Term
 (* Annotated terms *)
 | Ann          : Term -> FType -> Term
@@ -42,7 +60,7 @@ Inductive Term {I} `{FInt I} : Set :=
 | Tuple        : list Term -> Term 
 | ProjN        : N -> Term -> Term
 (* Int *)
-| Num          : Int64.int -> Term
+| Num          : I -> Term
 (* Expressions *)
 | If0          : Term -> Term -> Term -> Term
 | Op           : PrimOp -> Term -> Term -> Term
@@ -50,6 +68,22 @@ Inductive Term {I} `{FInt I} : Set :=
 
 Definition TypeContext := N.
 Definition TermContext := list FType.
+
+Fixpoint term_size {I} `{FInt I} (term : Term) : nat :=
+  match term with
+  | Var x => 0
+  | Ann e t => 1 + term_size e
+  | Fix arg_type body => 1 + term_size body
+  | App e1 e2 => 1 + term_size e1 + term_size e2
+  | TAbs e => 1 + term_size e
+  | TApp e t => 1 + term_size e
+  | Tuple es => 1 + (list_sum (map term_size es))
+  | ProjN i e => 1 + term_size e
+  | Num x => 0
+  | If0 c e1 e2 => 1 + term_size c + term_size e1 + term_size e2
+  | Op op e1 e2 => 1 + term_size e1 + term_size e2
+  end
+  .
 
 (* Lift by 2 because fixpoint has a argument in addition to referring to itself *)
 Fixpoint term_lift {I} `{FInt I} (n : N) (term : Term) : Term :=
@@ -96,5 +130,65 @@ Definition eval_primop {I} `{FInt I} (op : PrimOp) : (I -> I -> I) :=
   | Sub => sub
   end.
 
-Definition eval_op {I } `{FInt I} (op : PrimOp) (x y : I) : I :=
+Definition eval_op {I} `{FInt I} (op : PrimOp) (x y : I) : I :=
   eval_primop op x y.
+
+Definition app_fix {I} `{FInt I} (arg_type : FType) (body : Term) (arg : Term) : Term :=
+  term_subst 1 (term_subst 0 body (Fix arg_type body)) arg.
+
+Lemma list_sum_map :
+  forall {X} (f : X -> nat) x xs,
+    In x xs ->
+    list_sum (map f xs) >= f x.
+Proof.
+  induction xs; intros In; [contradiction|].
+  destruct In; subst.
+  - cbn. lia.
+  - cbn. specialize (IHxs H).
+    unfold list_sum in IHxs.
+    lia.
+Qed.
+
+Obligation Tactic := try Tactics.program_simpl; try solve [cbn; try lia | repeat split; try solve [intros; discriminate]].
+Program Fixpoint step {I} `{FInt I} (e : Term) {measure (term_size e)} : (unit + Term) :=
+  match e with
+  | Ann e t => step e
+  | Fix arg_type body => inl tt
+  | App (Fix arg_type body) arg =>
+    inr (app_fix arg_type body arg)
+  | App e1 e2 =>
+    e1v <- step e1;;
+    inr (App e1v e2)
+  | Op op (Num xn) (Num yn) =>
+    inr (Num (eval_op op xn yn))
+  | Op op (Num xn) y =>
+    yv <- step y ;;
+    inr (Op op (Num xn) yv)
+  | Op op x y =>
+    xv <- step x ;;
+    inr (Op op xv y)
+  | TApp x t => inl tt (* TODO: Unimplemented *)
+  | ProjN i (Tuple es) =>
+    match nth_error es (N.to_nat i) with
+    | Some e => step e
+    | None => inl tt
+    end
+  | ProjN i e =>
+    ev <- step e;;
+    inr (ProjN i ev)
+  | If0 (Num x) e1 e2 =>
+    if eq x zero
+    then inr e1
+    else inr e2
+  | If0 c e1 e2 =>
+    cv <- step c;;
+    inr (If0 cv e1 e2)
+  | _ => inl tt
+  end.
+Next Obligation.
+  cbn.
+  symmetry in Heq_anonymous.
+  apply nth_error_In in Heq_anonymous.
+  pose proof (list_sum_map term_size e es Heq_anonymous).       
+  lia.
+Qed.
