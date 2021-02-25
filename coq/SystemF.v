@@ -1,8 +1,12 @@
 From Coq Require Import
      ZArith
+     String
      List.
 
-Require Import Vellvm.Numeric.Integers.
+From Vellvm Require Import
+     Numeric.Integers
+     Utils.Util.
+
 Require Import Lia.
 
 From ExtLib Require Import
@@ -192,3 +196,55 @@ Next Obligation.
   pose proof (list_sum_map term_size e es Heq_anonymous).       
   lia.
 Qed.
+
+Definition Failure := exceptE string.
+Open Scope string_scope.
+
+Definition eval_body {I} `{FInt I} (e : Term) : itree (callE Term Term +' Failure) Term :=
+  match e with
+  | Ann e t => call e
+  | App e1 e2 =>
+    e1v <- call e;;
+    e2v <- call e2;;
+    match e1v with
+    | Fix arg_type body => ret (app_fix arg_type body e2v)
+    | _ => throw "ill-typed application"
+    end
+  | TApp e t => throw "unimplemented"
+  | ProjN i es =>
+    es' <- call es;;
+    match es' with
+    | Tuple xs =>
+      xs' <- map_monad call xs;;
+      match nth_error xs' (N.to_nat i) with
+      | Some e => call e
+      | None => throw "tuple projection out of bounds"
+      end
+    | _ => throw "ill-typed tuple projection"
+    end
+  | If0 c e1 e2 =>
+    cv <- call c;;
+    match cv with
+    | Num x =>
+      if eq x zero
+      then call e1
+      else call e2
+    | _ => throw "ill-typed if0"
+    end
+  | Op op e1 e2 =>
+    e1v <- call e1;;
+    e2v <- call e2;;
+    match e1v, e2v with
+    | Num x, Num y =>
+      ret (Num (eval_op op x y))
+    | _, _ => throw "ill-typed operation"
+    end
+  | Num x => ret e
+  | TAbs x => ret e
+  | Tuple x => ret e
+  | Fix arg_type body => ret e
+  | Var x => ret e
+  end.
+
+Definition eval {I} `{FInt I} : Term -> itree Failure Term :=
+  rec eval_body.
