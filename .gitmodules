@@ -1,3 +1,6 @@
 [submodule "vellvm"]
 	path = vellvm
 	url = git@github.com:vellvm/vellvm.git
+[submodule "QuickChick"]
+	path = QuickChick
+	url = git@github.com:QuickChick/QuickChick.git

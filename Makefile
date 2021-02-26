@@ -1,7 +1,7 @@
-OPAMPKGS=coq coq-ext-lib coq-paco coq-ceres coq-flocq dune menhir qcheck
+OPAMPKGS=coq coq-ext-lib coq-paco coq-ceres coq-flocq coq-mathcomp-ssreflect coq-simple-io dune menhir qcheck
 
 .PHONY: opam update-submodules vellvm all cofq
-all: vellvm cofq
+all: vellvm quickchick cofq
 
 cofq: CoqMakefile
 	make -f CoqMakefile
@@ -17,3 +17,9 @@ update-submodules:
 
 vellvm: opam
 	make -C vellvm/src
+
+.PHONY: quickcheck quickchick
+quickcheck: quickchick
+
+quickchick:
+	make -C QuickChick

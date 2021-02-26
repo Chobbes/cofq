@@ -1,4 +1,7 @@
 -R coq Cofq
 -R ./vellvm/src/coq Vellvm
 -R ./vellvm/lib/InteractionTrees/theories ITree
+-R ./QuickChick/src QuickChick
+-I ./QuickChick/src
 coq/SystemF.v
+coq/SystemFTest.v
