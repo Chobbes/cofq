@@ -8,8 +8,16 @@ From Coq Require Import
      String
      List.
 
+From ExtLib Require Import
+     Structures.Monads
+     Structures.Functor
+     Eqv.
+
 Require Import SystemF.
+
 Import ListNotations.
+Import MonadNotation.
+Local Open Scope monad_scope.
 
 Variant Precedence :=
 | PrecOuter
@@ -38,7 +46,7 @@ Definition parens (outer inner : Precedence) (s : string) :=
 Definition intersperse (sep : string) (l : list string) : string
   := fold_left (fun acc s => if eqb "" acc then s else s ++ sep ++ acc) l "".
 
-Fixpoint showFType_helper {I} `{FInt I} `{Show I} (prec : Precedence) (t : FType) :=
+Fixpoint showFType_helper (prec : Precedence) (t : FType) :=
   match t with
   | Arrow a b => parens prec PrecApp (showFType_helper PrecInner a ++ "->" ++ showFType_helper PrecApp b)
   | Prod ts => "<" ++ intersperse ", " (map (showFType_helper PrecOuter) ts) ++ ">"
@@ -47,7 +55,7 @@ Fixpoint showFType_helper {I} `{FInt I} `{Show I} (prec : Precedence) (t : FType
   | IntType => "Int"
   end.
 
-Instance showFType {I} `{FInt I} `{Show I} : Show FType := 
+Instance showFType : Show FType := 
   {| show := showFType_helper PrecOuter
   |}.
 
@@ -88,3 +96,34 @@ Fixpoint showTerm_helper {I} `{FInt I} `{Show I} (prec : Precedence) (e : Term) 
 Instance showTerm {I} `{FInt I} `{Show I} : Show Term :=
   {| show := showTerm_helper PrecOuter
   |}.
+
+Require Import Lia.
+
+Check map TVar (map N.of_nat (seq 0 1)).
+
+Definition elems_fail {A : Type} (l : list A) :=
+  let n := length l in
+  bindGen (choose (0, n - 1))
+          (fun n' =>
+             match (List.nth_error l n') with
+             | Some x => returnGen x
+             | None => failGen
+             end).
+
+Program Fixpoint genFType' (ftv : nat) (sz : nat) {measure sz} : G FType
+  := match sz with
+     | O => elems_fail (IntType :: map TVar (map N.of_nat (seq 0 ftv)))
+     | S n' =>
+       oneOf_ failGen
+             [ genFType' ftv 0;
+               a <- genFType' ftv (sz / 6);; b <- genFType' ftv (sz / 4);; ret (Arrow a b);
+               a <- genFType' (S ftv) (sz - 1);; ret (TForall a);
+               ts <- listOf (genFType' ftv (sz / 2));; ret (Prod ts)
+             ]
+     end.
+Next Obligation.
+Admitted.
+Next Obligation.
+Admitted.
+Next Obligation.
+Admitted.
