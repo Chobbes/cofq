@@ -35,6 +35,16 @@ Class FInt I : Type :=
     zero : I;
   }.
 
+
+Instance FInt64 : FInt Int64.int :=
+  {| add  := Int64.add;
+     sub  := Int64.sub;
+     mul  := Int64.mul;
+     eq   := Int64.eq;
+     zero := Int64.zero;
+  |}.
+
+Unset Elimination Schemes.
 Inductive FType : Set :=
 | Arrow   : FType -> FType -> FType
 | Prod    : list FType -> FType
@@ -43,6 +53,29 @@ Inductive FType : Set :=
 (* Base Types *)
 | IntType   : FType
 .
+Set Elimination Schemes.
+
+Section FTypeInd.
+  Variable P : FType -> Prop.
+  Hypothesis IH_IntType       : P IntType.
+  Hypothesis IH_TVar          : forall x, P (TVar x).
+  Hypothesis IH_Prod          : forall (ts: list FType), (forall t, In t ts -> P t) -> P (Prod ts).
+  Hypothesis IH_Arrow         : forall t1 t2, P t1 -> P t2 -> P (Arrow t1 t2).
+  Hypothesis IH_TForall       : forall t, P t -> P (TForall t).
+
+  Lemma FType_ind : forall (t:FType), P t.
+    fix IH 1.
+    remember P as P0 in IH.
+    destruct t; auto; subst.
+    - apply IH_Arrow; auto.
+    - apply IH_Prod.
+      { revert l.
+        fix IH_ts 1. intros [|u ts']. intros. inversion H.
+        intros u' [<-|Hin]. apply IH. eapply IH_ts. apply Hin.
+      }
+    - apply IH_TForall. auto.
+  Qed.
+End FTypeInd.
 
 Inductive PrimOp : Set :=
 | Mul
@@ -87,7 +120,16 @@ Fixpoint term_size {I} `{FInt I} (term : Term) : nat :=
   | If0 c e1 e2 => 1 + term_size c + term_size e1 + term_size e2
   | Op op e1 e2 => 1 + term_size e1 + term_size e2
   end
-  .
+.
+
+Fixpoint type_size (τ : FType) : nat :=
+  match τ with
+  | Arrow a b => 1 + type_size a + type_size b
+  | Prod ts => 1 + (list_sum (map type_size ts))
+  | TForall x => 1 + type_size x
+  | TVar x => 0
+  | IntType => 0
+  end.
 
 (* Lift by 2 because fixpoint has a argument in addition to referring to itself *)
 Fixpoint term_lift {I} `{FInt I} (n : N) (term : Term) : Term :=
@@ -106,6 +148,15 @@ Fixpoint term_lift {I} `{FInt I} (n : N) (term : Term) : Term :=
   | Num x => Num x
   | If0 c e1 e2 => If0 (term_lift n c) (term_lift n e1) (term_lift n e2)
   | Op op e1 e2 => Op op (term_lift n e1) (term_lift n e2)
+  end.
+
+Fixpoint type_lift (n : N) (τ : FType) : FType :=
+  match τ with
+  | Arrow τ1 τ2 => Arrow (type_lift n τ1) (type_lift n τ2)
+  | Prod τs => Prod (map (type_lift n) τs)
+  | TForall τ' => TForall (type_lift (N.succ n) τ')
+  | TVar x => τ
+  | IntType => τ
   end.
 
 Fixpoint term_subst {I} `{FInt I} (v : VarInd) (body arg : Term) : Term :=
@@ -127,6 +178,49 @@ Fixpoint term_subst {I} `{FInt I} (v : VarInd) (body arg : Term) : Term :=
   | Op op e1 e2 => Op op (term_subst v e1 arg) (term_subst v e2 arg)
   end.
 
+Lemma list_sum_map :
+  forall {X} (f : X -> nat) x xs,
+    In x xs ->
+    list_sum (map f xs) >= f x.
+Proof.
+  induction xs; intros In; [contradiction|].
+  destruct In; subst.
+  - cbn. lia.
+  - cbn. specialize (IHxs H).
+    unfold list_sum in IHxs.
+    lia.
+Qed.
+
+
+Lemma type_lift_type_size:
+  forall τ n,
+    type_size (type_lift n τ) = type_size τ.
+Proof.
+  induction τ; intros sz; cbn;
+  repeat match goal with
+    H: _ |- _ =>
+    rewrite H
+  end; eauto.
+Qed.
+
+Obligation Tactic := try Tactics.program_simpl; try solve [cbn; try lia | repeat split; try solve [intros; discriminate]].
+Program Fixpoint type_subst_in_type (v : TypeInd) (τ : FType) (arg : FType) {measure (type_size τ)} : FType :=
+  match τ with
+  | TVar x =>
+    if N.eqb x v
+    then arg
+    else if N.ltb v x
+         then TVar (x-1)
+         else TVar x
+  | Arrow τ1 τ2 => Arrow (type_subst_in_type v τ1 arg) (type_subst_in_type v τ2 arg)
+  | Prod τs => Prod (map (fun τ => type_subst_in_type v τ arg) τs)
+  | TForall τ' => TForall (type_subst_in_type (v+1) (type_lift 0 τ') arg) (* type_lift causes recursion problems *)
+  | IntType => IntType
+  end.
+Next Obligation.
+  
+Qed.
+
 Definition eval_primop {I} `{FInt I} (op : PrimOp) : (I -> I -> I) :=
   match op with
   | Mul => mul
@@ -140,18 +234,12 @@ Definition eval_op {I} `{FInt I} (op : PrimOp) (x y : I) : I :=
 Definition app_fix {I} `{FInt I} (arg_type : FType) (body : Term) (arg : Term) : Term :=
   term_subst 1 (term_subst 0 body (Fix arg_type body)) arg.
 
-Lemma list_sum_map :
-  forall {X} (f : X -> nat) x xs,
-    In x xs ->
-    list_sum (map f xs) >= f x.
-Proof.
-  induction xs; intros In; [contradiction|].
-  destruct In; subst.
-  - cbn. lia.
-  - cbn. specialize (IHxs H).
-    unfold list_sum in IHxs.
-    lia.
-Qed.
+Fixpoint zipwith {X Y Z} (f : X -> Y -> Z) (xs : list X) (ys : list Y) : list Z
+  := match xs, ys with
+     | (x :: xs), (y :: ys) => f x y :: (zipwith f xs ys)
+     | _, _ => nil
+     end.
+
 
 Obligation Tactic := try Tactics.program_simpl; try solve [cbn; try lia | repeat split; try solve [intros; discriminate]].
 Program Fixpoint step {I} `{FInt I} (e : Term) {measure (term_size e)} : (unit + Term) :=
@@ -193,9 +281,23 @@ Next Obligation.
   cbn.
   symmetry in Heq_anonymous.
   apply nth_error_In in Heq_anonymous.
-  pose proof (list_sum_map term_size e es Heq_anonymous).       
+  pose proof (list_sum_map term_size e es Heq_anonymous).
   lia.
 Qed.
+
+Obligation Tactic := try Tactics.program_simpl; try solve [cbn; try lia | repeat split; try solve [intros; discriminate | intros; intros CONTRA; inv CONTRA; discriminate]].
+Program Fixpoint ftype_eq (τ1 : FType) (τ2 : FType) {measure (type_size τ1 + type_size τ2)} : bool
+  := match τ1, τ2 with
+     | Arrow a1 b1, Arrow a2 b2 => ftype_eq a1 a2 && ftype_eq b1 b2
+     | Prod es1, Prod es2 =>
+       forallb (bool_eq true) (zipwith (fun τ1 τ2 => ftype_eq τ1 τ2) es1 es2)
+     | TForall t1, TForall t2 => ftype_eq t1 t2
+     | TVar x, TVar y => N.eqb x y
+     | IntType, IntType => true
+     | _, _ => false
+     end.
+Next Obligation.
+Admitted.
 
 Definition Failure := exceptE string.
 Open Scope string_scope.
