@@ -241,6 +241,21 @@ Next Obligation.
   eauto.
 Qed.
 
+Fixpoint type_subst (v : TypeInd) (e : Term) (arg_type : FType) : Term
+  := match e with
+     | TAbs e => TAbs (type_subst (v+1) e (type_lift 0 arg_type))
+     | TApp e τ => TApp (type_subst v e arg_type) (type_subst_in_type v τ arg_type)
+     | Fix τ body => Fix (type_subst_in_type v τ arg_type) (type_subst v body arg_type)
+     | App e1 e2 => App (type_subst v e1 arg_type) (type_subst v e2 arg_type)
+     | If0 c e1 e2 => If0 (type_subst v c arg_type) (type_subst v e1 arg_type) (type_subst v e2 arg_type)
+     | Op op e1 e2 => Op op (type_subst v e1 arg_type) (type_subst v e2 arg_type)
+     | Tuple es => Tuple (map (fun e => type_subst v e arg_type) es)
+     | ProjN i e => ProjN i (type_subst v e arg_type)
+     | Ann e τ => Ann (type_subst v e arg_type) (type_subst_in_type v τ arg_type)
+     | Num x => Num x
+     | Var x => Var x
+     end.
+
 Definition eval_primop {I} `{FInt I} (op : PrimOp) : (I -> I -> I) :=
   match op with
   | Mul => mul
