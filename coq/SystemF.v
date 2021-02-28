@@ -241,7 +241,7 @@ Next Obligation.
   eauto.
 Qed.
 
-Fixpoint type_subst (v : TypeInd) (e : Term) (arg_type : FType) : Term
+Fixpoint type_subst {I} `{FInt I} (v : TypeInd) (e : Term) (arg_type : FType) : Term
   := match e with
      | TAbs e => TAbs (type_subst (v+1) e (type_lift 0 arg_type))
      | TApp e τ => TApp (type_subst v e arg_type) (type_subst_in_type v τ arg_type)
@@ -294,7 +294,11 @@ Program Fixpoint step {I} `{FInt I} (e : Term) {measure (term_size e)} : (unit +
   | Op op x y =>
     xv <- step x ;;
     inr (Op op xv y)
-  | TApp x t => inl tt (* TODO: Unimplemented *)
+  | TApp (TAbs e) arg_type =>
+    inr (type_subst 0 e arg_type)
+  | TApp e t =>
+    e' <- step e;;
+    inr (TApp e' t)
   | ProjN i (Tuple es) =>
     match nth_error es (N.to_nat i) with
     | Some e => step e
@@ -347,7 +351,13 @@ Definition eval_body {I} `{FInt I} (e : Term) : itree (callE Term Term +' Failur
     | Fix arg_type body => ret (app_fix arg_type body e2v)
     | _ => throw "ill-typed application"
     end
-  | TApp e t => throw "unimplemented"
+  | TApp e t =>
+    e' <- call e;;
+    match e' with
+    | TAbs body =>
+      ret (type_subst 0 e' t)
+    | _ => throw "ill-typed type application"
+    end
   | ProjN i es =>
     es' <- call es;;
     match es' with
