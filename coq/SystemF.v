@@ -201,7 +201,19 @@ Proof.
     H: _ |- _ =>
     rewrite H
   end; eauto.
+
+  rewrite map_map.
+  erewrite map_ext_in; eauto.
 Qed.
+
+Lemma map_In {A B : Type} (l : list A) (f : forall (x : A), In x l -> B) : list B.
+Proof.
+  induction l.
+  - exact nil.
+  - refine (f a _ :: IHl _).
+    + simpl. auto.
+    + intros x H. apply (f x). simpl. auto.
+Defined.
 
 Obligation Tactic := try Tactics.program_simpl; try solve [cbn; try lia | repeat split; try solve [intros; discriminate]].
 Program Fixpoint type_subst_in_type (v : TypeInd) (τ : FType) (arg : FType) {measure (type_size τ)} : FType :=
@@ -213,12 +225,20 @@ Program Fixpoint type_subst_in_type (v : TypeInd) (τ : FType) (arg : FType) {me
          then TVar (x-1)
          else TVar x
   | Arrow τ1 τ2 => Arrow (type_subst_in_type v τ1 arg) (type_subst_in_type v τ2 arg)
-  | Prod τs => Prod (map (fun τ => type_subst_in_type v τ arg) τs)
+  | Prod τs =>
+    Prod (map_In τs (fun τ HIn => type_subst_in_type v τ arg))
   | TForall τ' => TForall (type_subst_in_type (v+1) (type_lift 0 τ') arg) (* type_lift causes recursion problems *)
   | IntType => IntType
   end.
 Next Obligation.
-  
+  cbn.
+  pose proof (list_sum_map type_size τ τs HIn).
+  lia.
+Qed.
+Next Obligation.
+  rewrite type_lift_type_size.
+  cbn.
+  eauto.
 Qed.
 
 Definition eval_primop {I} `{FInt I} (op : PrimOp) : (I -> I -> I) :=
