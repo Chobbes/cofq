@@ -57,7 +57,7 @@ Fixpoint showFType_helper (prec : Precedence) (t : FType) :=
   | Arrow a b => parens prec PrecApp (showFType_helper PrecInner a ++ "->" ++ showFType_helper PrecApp b)
   | Prod ts => "<" ++ intersperse ", " (map (showFType_helper PrecOuter) ts) ++ ">"
   | TForall t => parens prec PrecOuter ("forall " ++ showFType_helper PrecOuter t)
-  | TVar x => show x
+  | TVar x => "t" ++ show x
   | IntType => "Int"
   end.
 
@@ -84,9 +84,9 @@ Definition op_prec (op : PrimOp) : Precedence
 
 Fixpoint showTerm_helper {I} `{FInt I} `{Show I} (prec : Precedence) (e : Term) :=
   match e with
-  | Var x => show x
+  | Var x => "v" ++ show x
   | Ann e t => parens prec PrecOuter (showTerm_helper PrecOuter e ++ " : " ++ show t)
-  | Fix t body => parens prec PrecOuter ("λ " ++ show t ++ ". " ++ showTerm_helper PrecOuter body)
+  | Fix ft t body => parens prec PrecOuter ("λ " ++ show ft ++ " " ++ show t ++ ". " ++ showTerm_helper PrecOuter body)
   | TAbs e => parens prec PrecOuter ("Λ. " ++ showTerm_helper PrecOuter e)
   | App e1 e2 => parens prec PrecInner (showTerm_helper PrecInner e1 ++ " " ++ showTerm_helper PrecApp e2)
   | TApp e t => parens prec PrecInner (showTerm_helper PrecInner e ++ " [" ++ show t ++ "]")
@@ -141,8 +141,6 @@ Definition genFType (ftv : nat) : G FType
 (* ** FType Tests ** *)
 Definition ftype_eq_refl (τ : FType) : bool
   := ftype_eq τ τ.
-
-QuickCheck (forAll (genFType 10) ftype_eq_refl).
 
 Definition genInt64 : G Int64.int
   := z <- arbitrary;;
@@ -228,10 +226,10 @@ Definition genPrimOp : G PrimOp
   := oneOf_ failGen (map returnGen [Mul; Add; Sub]).
 
 (* Probably want a variant of this that won't make recursive calls *)
-Program Fixpoint genTerm' (ftv : nat) (Γ : list FType) (τ : FType) (sz : N) {measure (N.to_nat sz)} : G Term
+Program Fixpoint genTerm' (ftv : nat) (Γ : list FType) (τ : FType) (sz : nat) {measure sz} : G Term
   :=
     match sz with
-    | N0 =>
+    | 0 =>
       oneOf_ failGen
              ( (guard (ftype_eq IntType τ);; ret (fmap Num genInt64)) ++
                (* Generate variables from the context with the same type *)
@@ -239,8 +237,8 @@ Program Fixpoint genTerm' (ftv : nat) (Γ : list FType) (τ : FType) (sz : N) {m
                (* Generate fixpoints... Need a way of ruling out recursive applications *)
                (match τ with
                 | Arrow τ1 τ2 =>
-                  [arg <- genTerm' ftv (τ1 :: Γ) τ2 0;;
-                   returnGen (Fix τ1 arg)
+                  [arg <- genTerm' ftv ((Arrow τ1 τ2) :: τ1 :: Γ) τ2 0;;
+                   returnGen (Fix (Arrow τ1 τ2) τ1 arg)
                   ]
                 | TForall τ1 =>
                   [e <- genTerm' (ftv+1) (map (type_lift 0) Γ) τ1 0;;
@@ -253,7 +251,7 @@ Program Fixpoint genTerm' (ftv : nat) (Γ : list FType) (τ : FType) (sz : N) {m
                 | _ => []
                 end)
              )
-    | Npos x =>
+    | S x =>
       cut
             (freq_ failGen
                    ([(6, genTerm' ftv Γ τ 0);
@@ -283,21 +281,23 @@ Program Fixpoint genTerm' (ftv : nat) (Γ : list FType) (τ : FType) (sz : N) {m
                     ] ++
                     (match τ with
                      | Arrow τ1 τ2 =>
-                       [(8, (arg <- genTerm' ftv (τ1 :: Γ) τ2 (sz-1);;
-                             returnGen (Fix τ1 arg)))]
+                       [(8, (arg <- genTerm' ftv ((Arrow τ1 τ2) :: τ1 :: Γ) τ2 (sz-1);;
+                             returnGen (Fix (Arrow τ1 τ2) τ1 arg)))]
                      | TForall τ1 =>
                        [(4, (e <- genTerm' (ftv+1) (map (type_lift 0) Γ) τ1 (sz-1);;
                                 returnGen (TAbs e)))]
                      | Prod τs =>
-                       [(1, (τs' <- map_monad (fun τ => genTerm' ftv Γ τ (sz / (N.of_nat (length τs)))) τs;;
+                       [(1, (τs' <- map_monad (fun τ => genTerm' ftv Γ τ (sz / (length τs))) τs;;
                              returnGen (Tuple τs')))]
                      | _ => []
                      end)
                    )
             )
     end.
-Next Obligation.
-Admitted.
+Admit Obligations.
+
+Definition genTerm (ftv : nat) (Γ : list FType) (τ : FType) : G Term
+  := sized (genTerm' ftv Γ τ).
 
 (* Want to be able to generate basic loops... But don't want general recursion...
 
@@ -315,7 +315,7 @@ Admitted.
 *)
 
 Definition factorial : @Term Int64.int FInt64
-  := Fix IntType
+  := Fix (Arrow IntType IntType) IntType
          (If0 (Var 1)
               (Num (Int64.repr 1))
               (Op Mul (App (Var 0) (Op Sub (Var 1) (Num (Int64.repr 1)))) (Var 1))).
@@ -337,3 +337,23 @@ Fixpoint multistep (n : nat) (v : Term) : Term
      end.
 
 Compute (multistep 100 (App factorial (Num (Int64.repr 3)))).
+
+QuickCheck (forAll (genFType 0) (well_formed_type 0)).
+QuickCheck (forAll (genFType 10) ftype_eq_refl).
+
+(* Test for preservation *)
+(* Currently fails... *)
+(*
+forall Int
+if0 0 then Λ. 3 else Λ. 3 + (Λ. 0)
+*)
+
+QuickCheck (forAll (genFType 0) (fun τ => forAll (genTerm 0 [] τ)
+                                              (fun e => match step e with
+                                                     | inr e' =>
+                                                       match typeof e', typeof e with
+                                                       | Some τ1, Some τ2 => ftype_eq τ1 τ2
+                                                       | _, _ => false
+                                                       end
+                                                     | _ => true
+                                                     end))).

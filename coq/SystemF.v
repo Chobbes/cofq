@@ -88,7 +88,7 @@ Inductive Term {I} `{FInt I} : Type :=
 (* Annotated terms *)
 | Ann          : Term -> FType -> Term
 (* Terms *)
-| Fix          : FType -> Term -> Term
+| Fix          : FType -> FType -> Term -> Term
 | App          : Term -> Term -> Term
 (* Type stuff *)
 | TAbs         : Term -> Term
@@ -110,7 +110,7 @@ Fixpoint term_size {I} `{FInt I} (term : Term) : nat :=
   match term with
   | Var x => 0
   | Ann e t => 1 + term_size e
-  | Fix arg_type body => 1 + term_size body
+  | Fix fix_type arg_type body => 1 + term_size body
   | App e1 e2 => 1 + term_size e1 + term_size e2
   | TAbs e => 1 + term_size e
   | TApp e t => 1 + term_size e
@@ -139,7 +139,7 @@ Fixpoint term_lift {I} `{FInt I} (n : N) (term : Term) : Term :=
     then Var x
     else Var (x + 2)
   | Ann term' type => Ann (term_lift n term') type
-  | Fix ftype fbody => Fix ftype (term_lift (n+2) fbody)
+  | Fix fix_type arg_type fbody => Fix fix_type arg_type (term_lift (n+2) fbody)
   | App e1 e2 => App (term_lift n e1) (term_lift n e2)
   | TAbs e => TAbs (term_lift n e)
   | TApp e t => TApp (term_lift n e) t
@@ -165,8 +165,8 @@ Fixpoint term_subst {I} `{FInt I} (v : VarInd) (body arg : Term) : Term :=
     if N.eqb x v
     then arg
     else Var x
-  | Fix farg fbody =>
-    Fix farg (term_subst (v + 2) fbody (term_lift 0 arg))
+  | Fix fix_type arg_type fbody =>
+    Fix fix_type arg_type (term_subst (v + 2) fbody (term_lift 0 arg))
   | Ann e t => Ann (term_subst v e arg) t
   | App e1 e2 => App (term_subst v e1 arg) (term_subst v e2 arg)
   | TAbs e => TAbs (term_subst v e arg)
@@ -245,7 +245,7 @@ Fixpoint type_subst {I} `{FInt I} (v : TypeInd) (e : Term) (arg_type : FType) : 
   := match e with
      | TAbs e => TAbs (type_subst (v+1) e (type_lift 0 arg_type))
      | TApp e τ => TApp (type_subst v e arg_type) (type_subst_in_type v τ arg_type)
-     | Fix τ body => Fix (type_subst_in_type v τ arg_type) (type_subst v body arg_type)
+     | Fix fτ τ body => Fix (type_subst_in_type v fτ arg_type) (type_subst_in_type v τ arg_type) (type_subst v body arg_type)
      | App e1 e2 => App (type_subst v e1 arg_type) (type_subst v e2 arg_type)
      | If0 c e1 e2 => If0 (type_subst v c arg_type) (type_subst v e1 arg_type) (type_subst v e2 arg_type)
      | Op op e1 e2 => Op op (type_subst v e1 arg_type) (type_subst v e2 arg_type)
@@ -266,8 +266,8 @@ Definition eval_primop {I} `{FInt I} (op : PrimOp) : (I -> I -> I) :=
 Definition eval_op {I} `{FInt I} (op : PrimOp) (x y : I) : I :=
   eval_primop op x y.
 
-Definition app_fix {I} `{FInt I} (arg_type : FType) (body : Term) (arg : Term) : Term :=
-  term_subst 1 (term_subst 0 body (Fix arg_type body)) arg.
+Definition app_fix {I} `{FInt I} (fix_type arg_type : FType) (body : Term) (arg : Term) : Term :=
+  term_subst 1 (term_subst 0 body (Fix fix_type arg_type body)) arg.
 
 Fixpoint zipwith {X Y Z} (f : X -> Y -> Z) (xs : list X) (ys : list Y) : list Z
   := match xs, ys with
@@ -280,9 +280,9 @@ Obligation Tactic := try Tactics.program_simpl; try solve [cbn; try lia | repeat
 Program Fixpoint step {I} `{FInt I} (e : Term) {measure (term_size e)} : (unit + Term) :=
   match e with
   | Ann e t => step e
-  | Fix arg_type body => inl tt
-  | App (Fix arg_type body) arg =>
-    inr (app_fix arg_type body arg)
+  | Fix fix_type arg_type body => inl tt
+  | App (Fix fix_type arg_type body) arg =>
+    inr (app_fix fix_type arg_type body arg)
   | App e1 e2 =>
     e1v <- step e1;;
     inr (App e1v e2)
@@ -348,7 +348,7 @@ Definition eval_body {I} `{FInt I} (e : Term) : itree (callE Term Term +' Failur
     e1v <- call e;;
     e2v <- call e2;;
     match e1v with
-    | Fix arg_type body => ret (app_fix arg_type body e2v)
+    | Fix fix_type arg_type body => ret (app_fix fix_type arg_type body e2v)
     | _ => throw "ill-typed application"
     end
   | TApp e t =>
@@ -389,9 +389,87 @@ Definition eval_body {I} `{FInt I} (e : Term) : itree (callE Term Term +' Failur
   | Num x => ret e
   | TAbs x => ret e
   | Tuple x => ret e
-  | Fix arg_type body => ret e
+  | Fix fix_type arg_type body => ret e
   | Var x => ret e
   end.
 
 Definition eval {I} `{FInt I} : Term -> itree Failure Term :=
   rec eval_body.
+
+Fixpoint well_formed_type (ftv : N) (τ : FType) : bool
+  := match τ with
+     | Arrow τ1 τ2 => well_formed_type ftv τ1 && well_formed_type ftv τ2
+     | Prod τs => forallb (well_formed_type ftv) τs
+     | TForall τ' => well_formed_type (ftv + 1) τ'
+     | TVar x => N.ltb x ftv
+     | IntType => true
+     end.
+
+Obligation Tactic := try Tactics.program_simpl; try solve [cbn; try lia | repeat split; try solve [intros; discriminate | intros; intros CONTRA; inv CONTRA; discriminate]].
+Program Fixpoint typeof' {I} `{FInt I} (ftv : N) (Γ : list FType) (e : Term) {measure (term_size e)}: option FType :=
+  match e with
+  | Var x => nth_error Γ (N.to_nat x)
+  | Ann e τ =>
+    τ' <- (typeof' ftv Γ e);;
+    if ftype_eq τ' τ
+    then Some τ
+    else @None FType
+  | Fix fix_τ arg_τ body =>
+    if (well_formed_type ftv fix_τ && well_formed_type ftv arg_τ)%bool
+    then τ <- typeof' ftv (fix_τ::arg_τ::Γ) body;;
+         let τ' := (Arrow arg_τ τ) in
+         if ftype_eq fix_τ τ'
+         then Some τ'
+         else @None FType
+    else None
+  | App e1 e2 =>
+    τ12 <- typeof' ftv Γ e1;;
+    τ1 <- typeof' ftv Γ e2;;
+    match τ12 with
+    | Arrow τ1' τ2 =>
+      if ftype_eq τ1 τ1'
+      then Some τ2
+      else @None FType
+    | _ => @None FType
+    end
+  | TAbs e =>
+    τ <- typeof' (N.succ ftv) (map (type_lift 0) Γ) e;;
+    ret (TForall τ)
+  | TApp e τ =>
+    τ2 <- typeof' ftv Γ e;;
+    if well_formed_type ftv τ
+    then match τ2 with
+         | TForall τ2' => Some (type_subst_in_type 0 τ2' τ)
+         | _ => @None FType
+         end
+    else @None FType
+  | Tuple es =>
+    es' <- map_monad (fun e => typeof' ftv Γ e) es;;
+    ret (Prod es')
+  | ProjN i (Tuple es) =>
+    e <- nth_error es (N.to_nat i);;
+    typeof' ftv Γ e
+  | ProjN _ _ => None
+  | Num x => Some IntType
+  | If0 c e1 e2 =>
+    cτ <- typeof' ftv Γ c;;
+    if ftype_eq cτ IntType
+    then e1τ <- typeof' ftv Γ e1;;
+         e2τ <- typeof' ftv Γ e2;;
+         if ftype_eq e1τ e2τ
+         then Some e1τ
+         else @None FType
+    else @None FType
+  | Op op e1 e2 =>
+    e1τ <- typeof' ftv Γ e1;;
+    e2τ <- typeof' ftv Γ e2;;
+    if (ftype_eq e1τ IntType && ftype_eq e2τ IntType)%bool
+    then Some e1τ
+    else @None FType
+  end.
+Next Obligation.
+Admitted.
+Next Obligation.
+Admitted.
+
+Definition typeof := typeof' 0 nil.
