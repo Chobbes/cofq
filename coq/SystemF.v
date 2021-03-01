@@ -472,4 +472,4 @@ Admitted.
 Next Obligation.
 Admitted.
 
-Definition typeof := typeof' 0 nil.
+Definition typeof {I} `{FInt I} : Term -> option FType := typeof' 0 nil.
