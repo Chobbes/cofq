@@ -167,8 +167,68 @@ Fixpoint addIndices' {A} (i : N) (l : list A) : list (N * A)
 
 Definition addIndices {A} := @addIndices' A 0.
 
+(* TODO: Add this to QC and make it actually do something *)
+Definition takeG {A} (n : nat) (g : G A) : G A := g.
+
+(* Check whether a type is closed *)
+Fixpoint is_closed' (tc : N) (τ : FType) : bool
+  := match τ with
+     | Arrow τ1 τ2 => is_closed' tc τ1 && is_closed' tc τ2
+     | Prod τs => forallb (is_closed' tc) τs
+     | TForall τ => is_closed' (tc+1) τ
+     | TVar x => N.ltb x tc
+     | IntType => true
+     end.
+
+Definition is_closed := is_closed' 0.
+
+(* Randomly fetch a subterm of a type *)
+Fixpoint fetch_sub_type (τ : FType) : G FType
+  :=
+    oneOf_ failGen
+           ((guard (is_closed τ);; [returnGen τ]) ++
+            (match τ with
+             | Arrow τ1 τ2 => [fetch_sub_type τ1 ; fetch_sub_type τ2]
+             | Prod τs => map fetch_sub_type τs
+             | TForall τ => [fetch_sub_type τ]
+             | _ => []
+             end)).
+
+(* Replace (some occurrences of) closed type s in type t by (TVar n) *)
+Fixpoint replace_sub_type (n : VarInd) (τ arg_τ : FType) : G FType
+  := oneOf_ failGen
+            ([ returnGen τ ] ++
+             (guard (ftype_eq τ arg_τ);; [returnGen (TVar n)]) ++
+             match τ with
+             | Arrow τ1 τ2 =>
+               [τ1' <- replace_sub_type n τ1 arg_τ;;
+                τ2' <- replace_sub_type n τ2 arg_τ;;
+                returnGen (Arrow τ1' τ2')
+               ]
+             | Prod τs =>
+               [τs' <- map_monad (fun τ => replace_sub_type n τ arg_τ) τs;;
+                returnGen (Prod τs)
+               ]
+             | TForall τ =>
+               (* TODO: make sure this is right *)
+               [τ' <- replace_sub_type (n+1) τ arg_τ;;
+                returnGen (TForall τ')
+               ]
+             | _ => []
+             end).
+
+(* Generate t1 t2 such that t1{0:=t2} = t *)
+Definition genT1T2 (τ : FType) : G (FType * FType)
+  := let τ' := type_lift 0 τ
+     in τ2 <- fetch_sub_type τ';;
+        τ1 <- replace_sub_type 0 τ' τ2;;
+        returnGen (TForall τ1, τ2).
+
+Definition genPrimOp : G PrimOp
+  := oneOf_ failGen (map returnGen [Mul; Add; Sub]).
+
 (* Probably want a variant of this that won't make recursive calls *)
-Program Fixpoint genTerm' (ftv : nat) (Γ : list FType) (τ : FType) (sz : N) : G Term
+Program Fixpoint genTerm' (ftv : nat) (Γ : list FType) (τ : FType) (sz : N) {measure (N.to_nat sz)} : G Term
   :=
     match sz with
     | N0 =>
@@ -179,53 +239,65 @@ Program Fixpoint genTerm' (ftv : nat) (Γ : list FType) (τ : FType) (sz : N) : 
                (* Generate fixpoints... Need a way of ruling out recursive applications *)
                (match τ with
                 | Arrow τ1 τ2 =>
-                  ret (arg <- genTerm' ftv (τ1 :: Γ) τ2 0;;
-                       returnGen (Fix τ1 arg))
-                | _ => []
-                end) ++
-               (match τ with
+                  [arg <- genTerm' ftv (τ1 :: Γ) τ2 0;;
+                   returnGen (Fix τ1 arg)
+                  ]
                 | TForall τ1 =>
-                  ret (
-                    )
+                  [e <- genTerm' (ftv+1) (map (type_lift 0) Γ) τ1 0;;
+                   returnGen (TAbs e)
+                  ]
+                | Prod τs =>
+                  [τs' <- map_monad (fun τ => genTerm' ftv Γ τ 0) τs;;
+                   returnGen (Tuple τs')
+                  ]
                 | _ => []
                 end)
-               (* Tuples *)
-               
              )
-    | Npos x => _
+    | Npos x =>
+      cut
+            (freq_ failGen
+                   ([(6, genTerm' ftv Γ τ 0);
+                     (* Applications *)
+                     (8, τ2 <- backTrack 2 (resize 10 (genFType ftv));;
+                        nr <- choose (1,2);;
+                        me1 <- backTrack nr (genTerm' ftv Γ (Arrow τ2 τ) (sz / 2));;
+                        me2 <- genTerm' ftv Γ τ2 (sz / 2);;
+                        returnGen (App me1 me2));
+                     (* Type applications *)
+                     (4, '(τ1, τ2) <- genT1T2 τ;;
+                         me1 <- genTerm' ftv Γ τ1 (sz - 1);;
+                         returnGen (TApp me1 τ2));
+                     (* If0 *)
+                     (1, c <- genTerm' ftv Γ IntType (sz / 3);;
+                         e1 <- genTerm' ftv Γ τ (sz / 3);;
+                         e2 <- genTerm' ftv Γ τ (sz / 3);;
+                         returnGen (If0 c e1 e2));
+                     (* Operators *)
+                     (1, op <- genPrimOp;;
+                         e1 <- genTerm' ftv Γ τ (sz / 2);;
+                         e2 <- genTerm' ftv Γ τ (sz / 2);;
+                         returnGen (Op op e1 e2))
+                     (* TODO: unimplemented *)
+                     (* Tuple projections *)
+                     (* Annotated terms *)
+                    ] ++
+                    (match τ with
+                     | Arrow τ1 τ2 =>
+                       [(8, (arg <- genTerm' ftv (τ1 :: Γ) τ2 (sz-1);;
+                             returnGen (Fix τ1 arg)))]
+                     | TForall τ1 =>
+                       [(4, (e <- genTerm' (ftv+1) (map (type_lift 0) Γ) τ1 (sz-1);;
+                                returnGen (TAbs e)))]
+                     | Prod τs =>
+                       [(1, (τs' <- map_monad (fun τ => genTerm' ftv Γ τ (sz / (N.of_nat (length τs)))) τs;;
+                             returnGen (Tuple τs')))]
+                     | _ => []
+                     end)
+                   )
+            )
     end.
 Next Obligation.
 Admitted.
-
-
-[ return $ Var i | (i,t') <- zip [0..] c, t == t' ] ++
-[ Lam t1 <$> arb ftv (t1:c) t2 0 | (t1 :-> t2) <- [t] ] ++
-[ TLam <$> arb (ftv+1) (map (liftType 0) c) t1 0 | (ForAll t1) <- [t] ]   -- MUTANT?
-
-  match sz with
-     | O =>
-     | S x => _
-     end.
-Inductive Term {I} `{FInt I} : Type :=
-| Var          : VarInd -> Term (* *)
-(* Annotated terms *)
-| Ann          : Term -> FType -> Term
-(* Terms *)
-| Fix          : FType -> Term -> Term (* *)
-| App          : Term -> Term -> Term
-(* Type stuff *)
-| TAbs         : Term -> Term
-| TApp         : Term -> FType -> Term
-(* Prod *)
-| Tuple        : list Term -> Term 
-| ProjN        : N -> Term -> Term
-(* Int *)
-| Num          : I -> Term
-(* Expressions *)
-| If0          : Term -> Term -> Term -> Term
-| Op           : PrimOp -> Term -> Term -> Term
-.
-
 
 (* Want to be able to generate basic loops... But don't want general recursion...
 
@@ -265,90 +337,3 @@ Fixpoint multistep (n : nat) (v : Term) : Term
      end.
 
 Compute (multistep 100 (App factorial (Num (Int64.repr 3)))).
-
-(*       
-genExpr :: _ => Gen Expr
-genExpr =
---  traceShow (?config, ?mutant) $
-  (gcTake ?config) $ sized $ (\n -> do t <- genType 0; arb 0 [] t n)
-    where arb :: Int -> [Type] -> Type -> Int -> Gen Expr
-          arb ftv c t 0 = (gcBaseChoice ?config) $
-                          [ return Con | t == Base ] ++
---                          [ return BTrue | t == TBool ] ++
---                          [ return BFalse | t == TBool ] ++                          [ return $ Var i | (i,t') <- zip [0..] c, t == t' ] ++
-                          [ Lam t1 <$> arb ftv (t1:c) t2 0 | (t1 :-> t2) <- [t] ] ++
-                          [ TLam <$> arb (ftv+1) (map (liftType 0) c) t1 0 | (ForAll t1) <- [t] ]   -- MUTANT?
-          arb ftv c t n = (takeG $ gcRecChoiceTake ?config) . (gcRecChoice ?config) $
-                          [ (6, arb ftv c t 0) ] ++
-                          [ (8, Lam t1 <$> (arb ftv (t1:c) t2 (n-1))) | (t1 :-> t2) <- [t] ] ++
-                          [ (4, TLam <$> (arb (ftv+1) (map (liftType 0) c) t1 (n-1))) | (ForAll t1) <- [t] ] ++
-                          [ (8, do t2 <- retry (gcRetryType ?config) $ do
-                                         arbT <- resize 10 $ genType ftv   -- for now; should be bigger?
-                                         -- TODO: Michal?
-                                         elements (nub $ michal c t ++ [arbT])
-                                   nr <- choose (1,2)
-                                   me1 <- retry nr $ arb ftv c (t2 :-> t) (n `div` 2)
-                                   me2 <- arb ftv c t2 (n `div` 2)
-                                   return $ me1 :@: me2) ] ++
-                          [ (4, do (t1, t2) <- retry (gcRetryTApp ?config) $ genT1T2 t
-                                   me1 <- arb ftv c t1 (n - 1)
-                                   return $ TApp me1 t2) ] {- ++
-                         [ (1, do e1 <- arb ftv c TBool (n `div` 3)
-                                  e2 <- arb ftv c t (n `div` 3)
-                                  e3 <- arb ftv c t (n `div` 3)
-                                  return $ Cond e1 e2 e3) ] -}
-
-
-michal c t = [t' | varType <- c,
-                   t' <- aux varType]
-  where aux (t1 :-> t2) | t==t2 = [t1]
-                        | t/=t2 = aux t2
-        aux _                   = []
-
-
--- Check if a type has any type variables.
--- TODO: replace with "isClosed"
-hasTVars :: Type -> Bool
-hasTVars (TVar _)    = True
-hasTVars (t1 :-> t2) = hasTVars t1 || hasTVars t2
-hasTVars (ForAll t)  = hasTVars t
-hasTVars TBool       = False
-hasTVars Base        = False
-
-
-isClosed :: Type -> Bool
-isClosed = isClosed' 0
-  where
-    isClosed' :: Int -> Type -> Bool
-    isClosed' tc (TVar x)    = x < tc
-    isClosed' tc (t1 :-> t2) = isClosed' tc t1 && isClosed' tc t2
-    isClosed' tc (ForAll t)  = isClosed' (tc+1) t
-    isClosed' _ TBool        = True
-    isClosed' _ Base         = True
-
--- Randomly fetch a subterm of a type
-fetchSubType :: Type -> Gen Type
-fetchSubType t =
-  oneof $
-  [ return t | isClosed t ] ++
-  [ fetchSubType t1 | (t1 :-> t2) <- [t] ] ++
-  [ fetchSubType t2 | (t1 :-> t2) <- [t] ] ++
-  [ fetchSubType t' | (ForAll t') <- [t] ]
-
-replaceSubType :: Int -> Type -> Type -> Gen Type
--- "Replace (some occurrences of) closed type s in type t by (TVar n)"
-replaceSubType n s t =
-  oneof $
-  [ return t ] ++
-  [ return $ TVar n | s == t ] ++
-  [ do t1' <- replaceSubType n s t1; t2' <- replaceSubType n s t2; return $ t1' :-> t2' | (t1 :-> t2) <- [t] ] ++
-  [ do t'' <- replaceSubType (n+1) s t'; return $ ForAll t'' | (ForAll t') <- [t], t' == s ]
-
--- Generate t1 t2 such that t1{0:=t2} = t
-genT1T2 :: Type -> Gen (Type, Type)
-genT1T2 t = do
-  let t' = let ?mutant = NoMutant in liftType 0 t
-  t2 <- fetchSubType t'
-  t1 <- replaceSubType 0 t2 t'
-  return (ForAll t1, t2)
-*) 
