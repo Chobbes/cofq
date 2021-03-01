@@ -1,0 +1,57 @@
+* System F to Vellvm Compiler
+
+  For our project we are hoping to create a System F to Vellvm
+  compiler. We hope to follow the System F to TAL paper in order to
+  construct a compiler from a simple variant of System F with integer (i64)
+  and tuple types to LLVM code through a series of transformations
+  through various intermediate languages.
+
+* Design of the Compiler
+
+  The design of our compiler will follow that of the System F to TAL
+  paper. We will follow a chain of compilation that involves CPS
+  conversion, closure conversion, hoisting, making allocation
+  explicit, and finally translation to LLVM IR.
+  
+* Goals
+
+  Our primary goals for this project are to develop a better
+  understanding of the representation of lambda calculuses (i.e.,
+  binders), as well as to get a basic understanding of how compilers
+  for functional programming languages work.
+
+  In addition to defining a compiler, we hope to define the semantics
+  for the various languages along the way using interaction
+  trees. While we do not anticipate that we will be able to prove our
+  compiler correct in full, we hope that this will be a useful first
+  step for laying out the full correctness proof in the
+  future. Furthermore, we hope to use the extracted interpreters in
+  conjunction with QuickChick in order to test our transformations.
+
+  We hope that this project will ultimately lead to a useful case
+  study of Vellvm, ITrees, and also the backtracking variant of
+  QuickChick.
+
+* Milestones
+
+  Our milestones are largely inspired by the order of the compilation
+  chain. Again, in addition to defining and converting between the
+  intermediate languages at each step, we also hope to define the
+  semantics of each language in terms of itrees at each step.
+
+** First Milestone
+
+  - System F Definition in Coq with step function / itree-based denotation
+  - QuickChick generators for System F
+    + Testing the compiler will be important
+
+** Second Milestone
+
+  - CPS transformation
+  - Closure conversion
+  - Hoisting
+
+** Third Milestone
+
+   - Explicit allocation
+   - Code Generation
