@@ -155,7 +155,7 @@ Fixpoint type_lift (n : N) (τ : FType) : FType :=
   | Arrow τ1 τ2 => Arrow (type_lift n τ1) (type_lift n τ2)
   | Prod τs => Prod (map (type_lift n) τs)
   | TForall τ' => TForall (type_lift (N.succ n) τ')
-  | TVar x => τ
+  | TVar x => if N.ltb x n then TVar x else TVar (x + 1)
   | IntType => τ
   end.
 
@@ -201,6 +201,8 @@ Proof.
     H: _ |- _ =>
     rewrite H
   end; eauto.
+
+  destruct (x <? sz)%N; auto.
 
   rewrite map_map.
   erewrite map_ext_in; eauto.
