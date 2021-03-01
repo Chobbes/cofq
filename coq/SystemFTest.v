@@ -269,12 +269,7 @@ Program Fixpoint genTerm' (ftv : nat) (Γ : list FType) (τ : FType) (sz : nat) 
                      (1, c <- genTerm' ftv Γ IntType (sz / 3);;
                          e1 <- genTerm' ftv Γ τ (sz / 3);;
                          e2 <- genTerm' ftv Γ τ (sz / 3);;
-                         returnGen (If0 c e1 e2));
-                     (* Operators *)
-                     (1, op <- genPrimOp;;
-                         e1 <- genTerm' ftv Γ τ (sz / 2);;
-                         e2 <- genTerm' ftv Γ τ (sz / 2);;
-                         returnGen (Op op e1 e2))
+                         returnGen (If0 c e1 e2))
                      (* TODO: unimplemented *)
                      (* Tuple projections *)
                      (* Annotated terms *)
@@ -289,6 +284,12 @@ Program Fixpoint genTerm' (ftv : nat) (Γ : list FType) (τ : FType) (sz : nat) 
                      | Prod τs =>
                        [(1, (τs' <- map_monad (fun τ => genTerm' ftv Γ τ (sz / (length τs))) τs;;
                              returnGen (Tuple τs')))]
+                     | IntType =>
+                       [(* Operators *)
+                         (1, op <- genPrimOp;;
+                         e1 <- genTerm' ftv Γ IntType (sz / 2);;
+                         e2 <- genTerm' ftv Γ IntType (sz / 2);;
+                         returnGen (Op op e1 e2))]
                      | _ => []
                      end)
                    )
@@ -341,13 +342,30 @@ Compute (multistep 100 (App factorial (Num (Int64.repr 3)))).
 QuickCheck (forAll (genFType 0) (well_formed_type 0)).
 QuickCheck (forAll (genFType 10) ftype_eq_refl).
 
-(* Test for preservation *)
+(* Generated terms have types *)
 (* Currently fails... *)
+QuickCheck (forAll (genFType 0) (fun τ => forAll (genTerm 0 [] τ)
+                                              (fun e => match typeof e with
+                                                     | Some τ' => ftype_eq τ τ'
+                                                     | _ => false
+                                                     end))).
+
+(* Supposedly the above fails on this... *)
 (*
-forall Int
-if0 0 then Λ. 3 else Λ. 3 + (Λ. 0)
+forall t0->Int
+Λ. (Λ. λ t0->Int t0. -4) [Int]
 *)
 
+Compute typeof (TApp (TAbs (TAbs (Fix (Arrow (TVar 0) IntType) (TVar 0) (Num (Int64.repr 3))))) IntType).
+Compute ftype_eq (TForall (Arrow (TVar 0) IntType)) (TForall (Arrow (TVar 0) IntType)).
+Compute ((fun e => match typeof e with
+               | Some τ' => ftype_eq (TForall (Arrow (TVar 0) IntType)) τ'
+               | _ => false
+               end) (TApp (TAbs (TAbs (Fix (Arrow (TVar 0) IntType) (TVar 0) (Num (Int64.repr 3))))) IntType)).
+(* Not sure I buy it... *)
+
+(* Test for preservation *)
+(* Currently fails... *)
 QuickCheck (forAll (genFType 0) (fun τ => forAll (genTerm 0 [] τ)
                                               (fun e => match step e with
                                                      | inr e' =>
