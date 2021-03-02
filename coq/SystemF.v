@@ -229,18 +229,13 @@ Program Fixpoint type_subst_in_type (v : TypeInd) (τ : FType) (arg : FType) {me
   | Arrow τ1 τ2 => Arrow (type_subst_in_type v τ1 arg) (type_subst_in_type v τ2 arg)
   | Prod τs =>
     Prod (map_In τs (fun τ HIn => type_subst_in_type v τ arg))
-  | TForall τ' => TForall (type_subst_in_type (v+1) (type_lift 0 τ') arg) (* type_lift causes recursion problems *)
+  | TForall τ' => TForall (type_subst_in_type (v+1) τ' (type_lift 0 arg))
   | IntType => IntType
   end.
 Next Obligation.
   cbn.
   pose proof (list_sum_map type_size τ τs HIn).
   lia.
-Qed.
-Next Obligation.
-  rewrite type_lift_type_size.
-  cbn.
-  eauto.
 Qed.
 
 Fixpoint type_subst {I} `{FInt I} (v : TypeInd) (e : Term) (arg_type : FType) : Term

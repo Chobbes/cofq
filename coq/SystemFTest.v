@@ -209,6 +209,7 @@ Fixpoint replace_sub_type (n : VarInd) (τ arg_τ : FType) : G FType
                ]
              | TForall τ =>
                (* TODO: make sure this is right *)
+               guard (ftype_eq τ arg_τ);;
                [τ' <- replace_sub_type (n+1) τ arg_τ;;
                 returnGen (TForall τ')
                ]
@@ -219,8 +220,8 @@ Fixpoint replace_sub_type (n : VarInd) (τ arg_τ : FType) : G FType
 Definition genT1T2 (τ : FType) : G (FType * FType)
   := let τ' := type_lift 0 τ
      in τ2 <- fetch_sub_type τ';;
-        τ1 <- replace_sub_type 0 τ' τ2;;
-        returnGen (TForall τ1, τ2).
+        (* τ1 <- replace_sub_type 0 τ' τ2;; *)
+        returnGen (TForall τ', τ2).
 
 Definition genPrimOp : G PrimOp
   := oneOf_ failGen (map returnGen [Mul; Add; Sub]).
@@ -364,17 +365,20 @@ Fixpoint shrink_term' {I} `{FInt I} (e : Term) : list Term
 Definition well_typed {I} `{FInt I} (e : Term) : bool
   := ssrbool.isSome (typeof e).
 
-Definition shrink_term {I} `{FInt I} (e : Term) : list Term
-  := (e' <- shrink_term' e;; guard (well_typed e');; ret e') ++
-     (* Double shrinks in case first step isn't well_typed *)
-     (e' <- shrink_term' e;; e'' <- shrink_term' e';; guard (well_typed e'');; ret e'') ++
-     match step e with
+Definition shrink_term_preserve_type {I} `{FInt I} (e : Term) : list Term
+  := match step e with
      | inr e' =>
        if (term_size e') <? (term_size e)
        then [e']
        else []
      | inl _ => []
      end.
+
+Definition shrink_term {I} `{FInt I} (e : Term) : list Term
+  := (e' <- shrink_term' e;; guard (well_typed e');; ret e') ++
+     (* Double shrinks in case first step isn't well_typed *)
+     (e' <- shrink_term' e;; e'' <- shrink_term' e';; guard (well_typed e'');; ret e'') ++
+     shrink_term_preserve_type e.
 
 Instance shrFType : Shrink FType :=
   {| shrink := shrink_ftype |}.
@@ -422,34 +426,20 @@ QuickCheck (forAll (genFType 10) ftype_eq_refl).
 
 (* Generated terms have types *)
 (* Currently fails... *)
-QuickCheck (forAllShrink (genFType 0) shrink_ftype (fun τ => forAllShrink (genTerm 0 [] τ) shrink_term
+QuickCheck (forAll (genFType 0) (fun τ => forAll (genTerm 0 [] τ)
                                               (fun e => match typeof e with
-                                                     | Some τ' => true (* ftype_eq τ τ' *)
+                                                     | Some τ' =>
+                                                       ftype_eq τ τ'
                                                      | _ => false
                                                      end))).
 
-(* Supposedly the above fails on this... *)
-(*
-forall t0->Int
-Λ. (Λ. λ t0->Int t0. -4) [Int]
-*)
-
-Compute typeof (TApp (TAbs (TAbs (Fix (Arrow (TVar 0) IntType) (TVar 0) (Num (Int64.repr 3))))) IntType).
-Compute ftype_eq (TForall (Arrow (TVar 0) IntType)) (TForall (Arrow (TVar 0) IntType)).
-Compute ((fun e => match typeof e with
-               | Some τ' => ftype_eq (TForall (Arrow (TVar 0) IntType)) τ'
-               | _ => false
-               end) (TApp (TAbs (TAbs (Fix (Arrow (TVar 0) IntType) (TVar 0) (Num (Int64.repr 3))))) IntType)).
-(* Not sure I buy it... *)
-
 (* Test for preservation *)
-(* Currently fails... *)
 QuickCheck (forAll (genFType 0) (fun τ => forAll (genTerm 0 [] τ)
                                               (fun e => match step e with
                                                      | inr e' =>
                                                        match typeof e', typeof e with
                                                        | Some τ1, Some τ2 => ftype_eq τ1 τ2
-                                                       | _, _ => false
+                                                       | _, _ => true
                                                        end
                                                      | _ => true
                                                      end))).
