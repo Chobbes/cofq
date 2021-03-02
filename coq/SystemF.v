@@ -345,7 +345,8 @@ Definition eval_body {I} `{FInt I} (e : Term) : itree (callE Term Term +' Failur
     e1v <- call e;;
     e2v <- call e2;;
     match e1v with
-    | Fix fix_type arg_type body => ret (app_fix fix_type arg_type body e2v)
+    | Fix fix_type arg_type body =>
+      call (app_fix fix_type arg_type body e2v)
     | _ => throw "ill-typed application"
     end
   | TApp e t =>
