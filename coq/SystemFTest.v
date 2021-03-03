@@ -301,6 +301,92 @@ Admit Obligations.
 Definition genTerm (ftv : nat) (Γ : list FType) (τ : FType) : G Term
   := sized (genTerm' ftv Γ τ).
 
+Definition map_both {A B} (f : A -> B) (e : A + A) :=
+  match e with
+  | inl a => inl (f a)
+  | inr a => inr (f a)
+  end.
+
+(* inl means it's a fixpoint variable *)
+Program Fixpoint genTerm_terminating' (ftv : nat) (Γ : list (FType + FType)) (τ : FType) (sz : nat) {measure sz} : G Term
+  :=
+    match sz with
+    | 0 =>
+      oneOf_ failGen
+             ( (guard (ftype_eq IntType τ);; ret (fmap Num genInt64)) ++
+               (* Generate variables from the context with the same type *)
+               ('(i,mτ) <- addIndices Γ;; 
+                match mτ with
+                | inr τ' =>
+                  guard (ftype_eq τ' τ);; ret (returnGen (Var i))
+                | _ => [] (* Exclude fixpoint variables in general *)
+                end) ++
+               (match τ with
+                | Arrow τ1 τ2 =>
+                  [arg <- genTerm_terminating' ftv (inl (Arrow τ1 τ2) :: inr τ1 :: Γ) τ2 0;;
+                   returnGen (Fix (Arrow τ1 τ2) τ1 arg)
+                  ]
+                | TForall τ1 =>
+                  [e <- genTerm_terminating' (ftv+1) (map (map_both (type_lift 0)) Γ) τ1 0;;
+                   returnGen (TAbs e)
+                  ]
+                | Prod τs =>
+                  [τs' <- map_monad (fun τ => genTerm_terminating' ftv Γ τ 0) τs;;
+                   returnGen (Tuple τs')
+                  ]
+                | _ => []
+                end)
+             )
+    | S x =>
+      cut
+            (freq_ failGen
+                   ([(6, genTerm_terminating' ftv Γ τ 0);
+                     (* Applications *)
+                     (8, τ2 <- backTrack 2 (resize 10 (genFType ftv));;
+                        nr <- choose (1,2);;
+                        me1 <- backTrack nr (genTerm_terminating' ftv Γ (Arrow τ2 τ) (sz / 2));;
+                        me2 <- genTerm_terminating' ftv Γ τ2 (sz / 2);;
+                        returnGen (App me1 me2));
+                     (* Type applications *)
+                     (4, '(τ1, τ2) <- genT1T2 τ;;
+                         me1 <- genTerm_terminating' ftv Γ τ1 (sz - 1);;
+                         returnGen (TApp me1 τ2));
+                     (* If0 *)
+                     (1, c <- genTerm_terminating' ftv Γ IntType (sz / 3);;
+                         e1 <- genTerm_terminating' ftv Γ τ (sz / 3);;
+                         e2 <- genTerm_terminating' ftv Γ τ (sz / 3);;
+                         returnGen (If0 c e1 e2))
+                     (* TODO: unimplemented *)
+                     (* Tuple projections *)
+                     (* Annotated terms *)
+                    ] ++
+                    (match τ with
+                     | Arrow τ1 τ2 =>
+                       [(8, (arg <- genTerm_terminating' ftv (inl (Arrow τ1 τ2) :: inr τ1 :: Γ) τ2 (sz-1);;
+                             returnGen (Fix (Arrow τ1 τ2) τ1 arg)))]
+                     | TForall τ1 =>
+                       [(4, (e <- genTerm_terminating' (ftv+1) (map (map_both (type_lift 0)) Γ) τ1 (sz-1);;
+                                returnGen (TAbs e)))]
+                     | Prod τs =>
+                       [(1, (τs' <- map_monad (fun τ => genTerm_terminating' ftv Γ τ (sz / (length τs))) τs;;
+                             returnGen (Tuple τs')))]
+                     | IntType =>
+                       [(* Operators *)
+                         (1, op <- genPrimOp;;
+                         e1 <- genTerm_terminating' ftv Γ IntType (sz / 2);;
+                         e2 <- genTerm_terminating' ftv Γ IntType (sz / 2);;
+                         returnGen (Op op e1 e2))]
+                     | _ => []
+                     end)
+                   )
+            )
+    end.
+Admit Obligations.
+
+Definition genTerm_terminating (ftv : nat) (Γ : list (FType + FType)) (τ : FType) : G Term
+  := sized (genTerm_terminating' ftv Γ τ).
+
+
 (* Want to be able to generate basic loops... But don't want general recursion...
 
    Make it so I can rule out the variable for the recursive call.
@@ -443,3 +529,56 @@ QuickCheck (forAll (genFType 0) (fun τ => forAll (genTerm 0 [] τ)
                                                        end
                                                      | _ => true
                                                      end))).
+
+
+From ITree Require Import
+     ITree
+     Interp.Recursion
+     Events.Exception.
+
+
+Inductive MlResult a e :=
+| MlOk : a -> MlResult a e
+| MlError : e -> MlResult a e.
+
+Extract Inductive MlResult => "result" [ "Ok" "Error" ].
+
+Unset Guard Checking.
+Fixpoint run_eval (t : ITreeDefinition.itree Failure Term) : MlResult Term string
+  := match observe t with
+     | RetF x => MlOk _ string x
+     | TauF t => run_eval t
+     | VisF _ (Throw msg) k => MlError _ string msg
+     end.
+Set Guard Checking.
+
+Instance showMLResult {A E} `{Show A} `{Show E} : Show (MlResult A E)
+  := {| show :=
+          fun mlr =>
+            match mlr with
+            | MlOk x => "MlOk " ++ show x
+            | MlError x => "MlError " ++ show x
+            end
+    |}.
+
+(*
+Extract Constant defNumTests    => "1".
+QuickChick (checker
+              (let e := (run_eval (eval (App (Num zero) (Op Mul (Num (Int64.repr 4)) (Num (Int64.repr 3)))))) in
+              collect e
+              (match e with
+               | MlOk (Num x) => eq x (Int64.repr 12)
+               | _ => false
+               end))
+           ).
+
+QuickChick (checker (match (run_eval (eval (App (Fix (Arrow IntType IntType) IntType (Op Mul (Var 1) (Num (Int64.repr 4)))) (Num (Int64.repr 3))))) with
+                     | MlOk (Num x) => eq x (Int64.repr 12)
+                     | _ => false
+                       end)
+           ).
+
+QuickChick (checker
+              ( let e := run_eval (eval (App factorial (Num (Int64.repr 5)))) in
+                collect e true)).
+*)
