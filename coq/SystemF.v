@@ -342,7 +342,7 @@ Definition eval_body {I} `{FInt I} (e : Term) : itree (callE Term Term +' Failur
   match e with
   | Ann e t => call e
   | App e1 e2 =>
-    e1v <- call e;;
+    e1v <- call e1;;
     e2v <- call e2;;
     match e1v with
     | Fix fix_type arg_type body =>
