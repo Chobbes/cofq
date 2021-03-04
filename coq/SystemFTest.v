@@ -597,6 +597,17 @@ Instance showMLResult {A E} `{Show A} `{Show E} : Show (MlResult A E)
             end
     |}.
 
+
+(* Test that we evaluate without failing *)
+QuickCheck (forAll (genFType 0) (fun τ => forAll (genTerm_terminating 0 [] τ)
+                                              (fun e => match run_eval (eval e) with
+                                                     | MlOk _ =>
+                                                       checker true
+                                                     | MlError x =>
+                                                       whenFail x
+                                                       false
+                                                     end))).
+
 (*
 Extract Constant defNumTests    => "1".
 QuickChick (checker

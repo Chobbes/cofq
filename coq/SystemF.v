@@ -353,7 +353,7 @@ Definition eval_body {I} `{FInt I} (e : Term) : itree (callE Term Term +' Failur
     e' <- call e;;
     match e' with
     | TAbs body =>
-      ret (type_subst 0 e' t)
+      ret (type_subst 0 body t)
     | _ => throw "ill-typed type application"
     end
   | ProjN i es =>
