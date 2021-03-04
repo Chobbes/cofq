@@ -20,9 +20,12 @@ From ITree Require Import
      Interp.Recursion
      Events.Exception.
 
+(* Needed for the Show typeclass *)
+From QuickChick Require Import QuickChick.
+
 Import MonadNotation.
 Local Open Scope monad_scope.
-
+Local Open Scope string_scope.
 
 Notation TypeInd := N.
 Notation VarInd  := N.
@@ -105,6 +108,89 @@ Inductive Term {I} `{FInt I} : Type :=
 
 Definition TypeContext := N.
 Definition TermContext := list FType.
+
+Variant Precedence :=
+| PrecOuter
+| PrecMult
+| PrecAdd
+| PrecSub
+| PrecApp
+| PrecInner
+.
+
+Definition prec_value (p : Precedence) : N :=
+  match p with
+  | PrecOuter => 0
+  | PrecAdd => 1
+  | PrecSub => 1
+  | PrecMult => 2
+  | PrecApp => 3
+  | PrecInner => 4
+  end.
+
+Definition parens (outer inner : Precedence) (s : string) :=
+  if N.leb (prec_value outer) (prec_value inner)
+  then s
+  else "(" ++ s ++ ")".
+
+Definition intersperse (sep : string) (l : list string) : string
+  := fold_left (fun acc s => if eqb "" acc then s else s ++ sep ++ acc) l "".
+
+Fixpoint showFType_helper (prec : Precedence) (t : FType) :=
+  match t with
+  | Arrow a b => parens prec PrecApp (showFType_helper PrecInner a ++ "->" ++ showFType_helper PrecApp b)
+  | Prod ts => "<" ++ intersperse ", " (map (showFType_helper PrecOuter) ts) ++ ">"
+  | TForall t => parens prec PrecOuter ("forall " ++ showFType_helper PrecOuter t)
+  | TVar x => "t" ++ show x
+  | IntType => "Int"
+  end.
+
+Instance showFType : Show FType := 
+  {| show := showFType_helper PrecOuter
+  |}.
+
+Instance showPrimOp : Show PrimOp :=
+  {| show :=
+       fun (op : PrimOp) =>
+         match op with
+         | Mul => "*"
+         | Add => "+"
+         | Sub => "-"
+         end
+  |}.
+
+Definition op_prec (op : PrimOp) : Precedence
+  := match op with
+     | Mul => PrecMult
+     | Add => PrecAdd
+     | Sub => PrecSub
+     end.           
+
+Fixpoint showTerm_helper {I} `{FInt I} `{Show I} (prec : Precedence) (e : Term) :=
+  match e with
+  | Var x => "v" ++ show x
+  | Ann e t => parens prec PrecOuter (showTerm_helper PrecOuter e ++ " : " ++ show t)
+  | Fix ft t body => parens prec PrecOuter ("λ " ++ show ft ++ " " ++ show t ++ ". " ++ showTerm_helper PrecOuter body)
+  | TAbs e => parens prec PrecOuter ("Λ. " ++ showTerm_helper PrecOuter e)
+  | App e1 e2 => parens prec PrecInner (showTerm_helper PrecInner e1 ++ " " ++ showTerm_helper PrecApp e2)
+  | TApp e t => parens prec PrecInner (showTerm_helper PrecInner e ++ " [" ++ show t ++ "]")
+  | Tuple es => "<" ++ intersperse ", " (map (showTerm_helper PrecOuter) es) ++ ">"
+  | ProjN i e => parens prec PrecInner ("π" ++ show i ++ " " ++ showTerm_helper PrecApp e)
+  | Num n => show n
+  | If0 c e1 e2 => parens prec PrecApp ("if0 " ++ showTerm_helper PrecOuter c ++ " then " ++ showTerm_helper PrecOuter e1 ++ " else " ++ showTerm_helper PrecOuter e2)
+  | Op op e1 e2 =>
+    let oprec := op_prec op in
+    parens prec oprec (showTerm_helper oprec e1 ++ " " ++ show op ++ " " ++ showTerm_helper oprec e2) 
+  end.
+
+Instance showInt64 : Show Int64.int :=
+  {| show := fun i => show (Int64.intval i)
+  |}.
+
+Instance showTerm {I} `{FInt I} `{Show I} : Show Term :=
+  {| show := showTerm_helper PrecOuter
+  |}.
+
 
 Fixpoint term_size {I} `{FInt I} (term : Term) : nat :=
   match term with
@@ -338,7 +424,7 @@ Admitted.
 Definition Failure := exceptE string.
 Open Scope string_scope.
 
-Definition eval_body {I} `{FInt I} (e : Term) : itree (callE Term Term +' Failure) Term :=
+Definition eval_body {I} `{FInt I} `{Show I} (e : Term) : itree (callE Term Term +' Failure) Term :=
   match e with
   | Ann e t => call e
   | App e1 e2 =>
@@ -347,25 +433,24 @@ Definition eval_body {I} `{FInt I} (e : Term) : itree (callE Term Term +' Failur
     match e1v with
     | Fix fix_type arg_type body =>
       call (app_fix fix_type arg_type body e2v)
-    | _ => throw "ill-typed application"
+    | _ => throw ("ill-typed application: " ++ show e)
     end
   | TApp e t =>
     e' <- call e;;
     match e' with
     | TAbs body =>
-      ret (type_subst 0 body t)
-    | _ => throw "ill-typed type application"
+      call (type_subst 0 body t)
+    | _ => throw ("ill-typed type application: " ++ show (TApp e' t))
     end
   | ProjN i es =>
     es' <- call es;;
     match es' with
     | Tuple xs =>
-      xs' <- map_monad call xs;;
-      match nth_error xs' (N.to_nat i) with
+      match nth_error xs (N.to_nat i) with
       | Some e => call e
-      | None => throw "tuple projection out of bounds"
+      | None => throw ("tuple projection out of bounds: " ++ show e)
       end
-    | _ => throw "ill-typed tuple projection"
+    | _ => throw ("ill-typed tuple projection: " ++ show e)
     end
   | If0 c e1 e2 =>
     cv <- call c;;
@@ -374,7 +459,7 @@ Definition eval_body {I} `{FInt I} (e : Term) : itree (callE Term Term +' Failur
       if eq x zero
       then call e1
       else call e2
-    | _ => throw "ill-typed if0"
+    | _ => throw ("ill-typed if0: " ++ show e)
     end
   | Op op e1 e2 =>
     e1v <- call e1;;
@@ -382,16 +467,18 @@ Definition eval_body {I} `{FInt I} (e : Term) : itree (callE Term Term +' Failur
     match e1v, e2v with
     | Num x, Num y =>
       ret (Num (eval_op op x y))
-    | _, _ => throw "ill-typed operation"
+    | _, _ => throw ("ill-typed operation: " ++ show e)
     end
   | Num x => ret e
   | TAbs x => ret e
-  | Tuple x => ret e
+  | Tuple xs =>
+    xs' <- map_monad call xs;;
+    ret (Tuple xs')
   | Fix fix_type arg_type body => ret e
   | Var x => ret e
   end.
 
-Definition eval {I} `{FInt I} : Term -> itree Failure Term :=
+Definition eval {I} `{FInt I} `{Show I} : Term -> itree Failure Term :=
   rec eval_body.
 
 Fixpoint well_formed_type (ftv : N) (τ : FType) : bool
