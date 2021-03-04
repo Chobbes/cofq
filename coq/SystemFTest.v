@@ -347,6 +347,30 @@ Program Fixpoint genTerm_terminating' (ftv : nat) (Γ : list (FType + FType)) (�
                         me1 <- backTrack nr (genTerm_terminating' ftv Γ (Arrow τ2 τ) (sz / 2));;
                         me2 <- genTerm_terminating' ftv Γ τ2 (sz / 2);;
                         returnGen (App me1 me2));
+                     (* Generate simple loops *)
+                     (1, loop_count <- choose (1%Z,5%Z);;
+
+                         (* Loop counter *)
+                         let loop_start := Num (Int64.repr loop_count) in
+                         (* count_dec : IntType *)
+                         let count_dec := (Op Sub (Var 1) (Num (Int64.repr 1))) in
+
+                         (* Gamma for under fix *)
+                         let Γ' := (inl (Arrow IntType τ)::inr IntType::Γ) in
+
+                         nr <- choose (1,2);;
+                         loop_done <- backTrack nr (genTerm_terminating' ftv Γ' τ (sz / 2));;
+
+                         nr <- choose (1,2);;
+                         main_body <- backTrack nr (genTerm_terminating' ftv Γ' (Arrow τ τ) (sz / 2));;
+                         let loop_main := App main_body (App (Var 0) count_dec) in
+
+                         let f := Fix (Arrow IntType τ) IntType
+                                      (If0 (Var 1)
+                                           loop_done
+                                           loop_main) in
+
+                         returnGen (App f loop_start));
                      (* Type applications *)
                      (4, '(τ1, τ2) <- genT1T2 τ;;
                          me1 <- genTerm_terminating' ftv Γ τ1 (sz - 1);;
@@ -511,13 +535,25 @@ QuickCheck (forAll (genFType 0) (well_formed_type 0)).
 QuickCheck (forAll (genFType 10) ftype_eq_refl).
 
 (* Generated terms have types *)
-(* Currently fails... *)
 QuickCheck (forAll (genFType 0) (fun τ => forAll (genTerm 0 [] τ)
                                               (fun e => match typeof e with
                                                      | Some τ' =>
                                                        ftype_eq τ τ'
                                                      | _ => false
                                                      end))).
+
+QuickCheck (forAll (genFType 0) (fun τ => forAllShrink (genTerm_terminating 0 [] τ) shrink_term_preserve_type
+                                              (fun e => match typeof e with
+                                                     | Some τ' =>
+                                                       whenFail
+                                                         ("Bad type: " ++ show τ')
+                                                         (ftype_eq τ τ')
+                                                     | _ =>
+                                                       whenFail
+                                                         "No type"
+                                                         false
+                                                     end))).
+
 
 (* Test for preservation *)
 QuickCheck (forAll (genFType 0) (fun τ => forAll (genTerm 0 [] τ)
