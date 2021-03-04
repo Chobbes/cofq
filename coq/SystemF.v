@@ -421,6 +421,39 @@ Program Fixpoint ftype_eq (τ1 : FType) (τ2 : FType) {measure (type_size τ1 + 
 Next Obligation.
 Admitted.
 
+Definition op_eq (op1 op2 : PrimOp) : bool
+  := match op1, op2 with
+     | Mul, Mul => true
+     | Add, Add => true
+     | Sub, Sub => true
+     | _, _ => false
+     end.
+
+Program Fixpoint term_eq (e1 e2 : Term) {measure (term_size e1 + term_size e2)} : bool
+  := match e1, e2 with
+     | Var x, Var y => N.eqb x y
+     | Ann e1 t1, Ann e2 t2 => term_eq e1 e2 && ftype_eq t1 t2
+     | Fix fτ1 aτ1 body1, Fix fτ2 aτ2 body2 =>
+       ftype_eq fτ1 fτ2 && ftype_eq aτ1 aτ2 && term_eq body1 body2
+     | App f1 a1, App f2 a2 =>
+       term_eq f1 f2 && term_eq a1 a2
+     | TAbs x, TAbs y => term_eq x y
+     | TApp e1 τ1, TApp e2 τ2 => term_eq e1 e2 && ftype_eq τ1 τ2
+     | Tuple xs, Tuple ys =>
+       forallb (bool_eq true) (zipwith (fun e1 e2 => term_eq e1 e2) xs ys)
+     | ProjN i1 e1, ProjN i2 e2 =>
+       N.eqb i1 i2 && term_eq e1 e2
+     | Num x, Num y => eq x y
+     | If0 c1 a1 b1, If0 c2 a2 b2 =>
+       term_eq c1 c2 && term_eq a1 a2 && term_eq b1 b2
+     | Op op1 a1 b1, Op op2 a2 b2 =>
+       op_eq op1 op2 && term_eq a1 a2 && term_eq b1 b2
+     | _, _ => false
+     end.
+Next Obligation.
+  cbn.
+Admitted.
+
 Definition Failure := exceptE string.
 Open Scope string_scope.
 

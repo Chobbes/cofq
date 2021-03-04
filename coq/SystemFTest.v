@@ -446,7 +446,16 @@ Fixpoint multistep (n : nat) (v : Term) : Term
        end
      end.
 
-Compute (multistep 100 (App factorial (Num (Int64.repr 3)))).
+(* Returns a term only if it's fully evaluated *)
+Fixpoint multistep' (n : nat) (v : Term) : option Term
+  := match n with
+     | O => None
+     | S n =>
+       match step v with
+       | inl tt => Some v
+       | inr t => multistep' n t
+       end
+     end.
 
 QuickCheck (forAll (genFType 0) (well_formed_type 0)).
 QuickCheck (forAll (genFType 10) ftype_eq_refl).
@@ -470,7 +479,6 @@ QuickCheck (forAll (genFType 0) (fun τ => forAllShrink (genTerm_terminating 0 [
                                                          "No type"
                                                          false
                                                      end))).
-
 
 (* Test for preservation *)
 QuickCheck (forAll (genFType 0) (fun τ => forAll (genTerm 0 [] τ)
@@ -519,6 +527,20 @@ QuickCheck (forAll (genFType 0) (fun τ => forAllShrink (genTerm_terminating 0 [
                                               (fun e => match run_eval (eval e) with
                                                      | MlOk _ =>
                                                        checker true
+                                                     | MlError x =>
+                                                       whenFail x
+                                                       false
+                                                     end))).
+
+(* Eval matches multistep *)
+(* Fails because of tuples *)
+QuickCheck (forAll (genFType 0) (fun τ => forAllShrink (genTerm_terminating 0 [] τ) shrink_term_preserve_type
+                                              (fun e => match run_eval (eval e) with
+                                                     | MlOk x =>
+                                                       match multistep' 10000 e with
+                                                       | Some y => whenFail (show (x,y)) (term_eq x y)
+                                                       | None => checker true (* Should probably make this a discard *)
+                                                       end
                                                      | MlError x =>
                                                        whenFail x
                                                        false
