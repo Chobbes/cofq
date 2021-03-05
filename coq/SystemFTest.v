@@ -486,6 +486,13 @@ QuickCheck (forAll (genFType 0) (fun τ => forAllShrink (genTerm_terminating 0 [
                                                          false
                                                      end))).
 
+(* Large counterexample to the above... *)
+(*
+<Int->Int, forall Int, <Int->Int>, <Int->Int, <>, <Int>, <Int, Int, Int>>>
+(λ <Int>-><Int->Int, forall Int, <Int->Int>, <Int->Int, <>, <Int>, <Int, Int, Int>>> <Int>. (λ Int-><Int->Int, forall Int, <Int->Int>, <Int->Int, <>, <Int>, <Int, Int, Int>>> Int. if0 v1 then <λ Int->Int Int. v3, Λ. 2, <λ Int->Int Int. v1>, <λ Int->Int Int. v3, v3, <v1>, v3>> else (λ <Int->Int, forall Int, <Int->Int>, <Int->Int, <>, <Int>, <Int, Int, Int>>>-><Int->Int, forall Int, <Int->Int>, <Int->Int, <>, <Int>, <Int, Int, Int>>> <Int->Int, forall Int, <Int->Int>, <Int->Int, <>, <Int>, <Int, Int, Int>>>. <λ Int->Int Int. v1, Λ. -1, <λ Int->Int Int. 4>, <λ Int->Int Int. v5, v1, v5, v5>>) v0 (v1 - 1)) 3) if0 -1 then <4> else <2>
+No type
+*)
+
 (* Test for preservation *)
 QuickCheck (forAll (genFType 0) (fun τ => forAll (genTerm 0 [] τ)
                                               (fun e => match step e with
@@ -522,6 +529,18 @@ QuickCheck (forAll (genFType 0) (fun τ => forAll (genTerm_terminating 0 [] τ)
                                                        whenFail x
                                                        false
                                                      end))).
+
+(* Eval gives a value *)
+QuickCheck (forAll (genFType 0) (fun τ => forAll (genTerm_terminating 0 [] τ)
+                                              (fun e => match run_eval (eval e) with
+                                                     | MlOk e' =>
+                                                       whenFail
+                                                         ("Not a value: " ++ show e')
+                                                         (is_value e')
+                                                     | MlError x =>
+                                                       whenFail x
+                                                       false
+                                                     end))). 
 
 
 (* Eval matches multistep *)

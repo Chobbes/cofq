@@ -591,3 +591,19 @@ Next Obligation.
 Admitted.
 
 Definition typeof {I} `{FInt I} : Term -> option FType := typeof' 0 nil.
+
+Fixpoint is_value {I} `{FInt I} (e : Term) : bool :=
+  match e with
+  | Var x => true
+  | Ann x x0 => false
+  | Fix x x0 x1 => true
+  | App x x0 => false
+  | TAbs x => true
+  | TApp x x0 => false
+  | Tuple xs =>
+    forallb is_value xs
+  | ProjN x x0 => false
+  | Num x => true
+  | If0 x x0 x1 => false
+  | Op x x0 x1 => false
+  end.
