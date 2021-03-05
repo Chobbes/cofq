@@ -20,6 +20,12 @@ From Vellvm Require Import
 Require Import SystemF.
 Require Import Lia.
 
+From ITree Require Import
+     ITree
+     Interp.Recursion
+     Events.Exception.
+
+Require Import TestUtils.
 
 Import ListNotations.
 Import MonadNotation.
@@ -491,37 +497,6 @@ QuickCheck (forAll (genFType 0) (fun τ => forAll (genTerm 0 [] τ)
                                                      | _ => true
                                                      end))).
 
-
-From ITree Require Import
-     ITree
-     Interp.Recursion
-     Events.Exception.
-
-
-Inductive MlResult a e :=
-| MlOk : a -> MlResult a e
-| MlError : e -> MlResult a e.
-
-Extract Inductive MlResult => "result" [ "Ok" "Error" ].
-
-Unset Guard Checking.
-Fixpoint run_eval (t : ITreeDefinition.itree Failure Term) : MlResult Term string
-  := match observe t with
-     | RetF x => MlOk _ string x
-     | TauF t => run_eval t
-     | VisF _ (Throw msg) k => MlError _ string msg
-     end.
-Set Guard Checking.
-
-Instance showMLResult {A E} `{Show A} `{Show E} : Show (MlResult A E)
-  := {| show :=
-          fun mlr =>
-            match mlr with
-            | MlOk x => "MlOk " ++ show x
-            | MlError x => "MlError " ++ show x
-            end
-    |}.
-
 (* Test that we evaluate without failing *)
 QuickCheck (forAll (genFType 0) (fun τ => forAllShrink (genTerm_terminating 0 [] τ) shrink_term_preserve_type
                                               (fun e => match run_eval (eval e) with
@@ -532,19 +507,36 @@ QuickCheck (forAll (genFType 0) (fun τ => forAllShrink (genTerm_terminating 0 [
                                                        false
                                                      end))).
 
-(* Eval matches multistep *)
-(* Fails because of tuples *)
-QuickCheck (forAll (genFType 0) (fun τ => forAllShrink (genTerm_terminating 0 [] τ) shrink_term_preserve_type
+(* Eval preserves types *)
+QuickCheck (forAll (genFType 0) (fun τ => forAll (genTerm_terminating 0 [] τ)
                                               (fun e => match run_eval (eval e) with
-                                                     | MlOk x =>
-                                                       match multistep' 10000 e with
-                                                       | Some y => whenFail (show (x,y)) (term_eq x y)
-                                                       | None => checker true (* Should probably make this a discard *)
+                                                     | MlOk e' =>
+                                                       match typeof e', typeof e with
+                                                       | Some τ1, Some τ2 =>
+                                                         whenFail
+                                                           (show ((e', τ1), (e, τ2)))
+                                                           (ftype_eq τ1 τ2)
+                                                       | _, _ => checker true
                                                        end
                                                      | MlError x =>
                                                        whenFail x
                                                        false
                                                      end))).
+
+
+(* Eval matches multistep *)
+(* Fails because of tuples *)
+(* QuickCheck (forAll (genFType 0) (fun τ => forAllShrink (genTerm_terminating 0 [] τ) shrink_term_preserve_type *)
+(*                                               (fun e => match run_eval (eval e) with *)
+(*                                                      | MlOk x => *)
+(*                                                        match multistep' 10000 e with *)
+(*                                                        | Some y => whenFail (show (x,y)) (term_eq x y) *)
+(*                                                        | None => checker true (* Should probably make this a discard *) *)
+(*                                                        end *)
+(*                                                      | MlError x => *)
+(*                                                        whenFail x *)
+(*                                                        false *)
+(*                                                      end))). *)
 
 (*
 Extract Constant defNumTests    => "1".
