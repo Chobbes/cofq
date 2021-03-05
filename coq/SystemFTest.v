@@ -398,6 +398,33 @@ Fixpoint shrink_term' {I} `{FInt I} (e : Term) : list Term
 Definition well_typed {I} `{FInt I} (e : Term) : bool
   := ssrbool.isSome (typeof e).
 
+Definition step' {I} `{FInt I} (v : unit + Term) : (unit + Term)
+  := match v with
+     | inl tt => inl tt
+     | inr t => step t
+     end.
+
+Fixpoint multistep {I} `{FInt I} (n : nat) (v : Term) : Term
+  := match n with
+     | O => v
+     | S n =>
+       match step v with
+       | inl tt => v
+       | inr t => multistep n t
+       end
+     end.
+
+(* Returns a term only if it's fully evaluated *)
+Fixpoint multistep' {I} `{FInt I} (n : nat) (v : Term) : option Term
+  := match n with
+     | O => None
+     | S n =>
+       match step v with
+       | inl tt => Some v
+       | inr t => multistep' n t
+       end
+     end.
+
 Definition shrink_term_preserve_type {I} `{FInt I} (e : Term) : list Term
   := match step e with
      | inr e' =>
@@ -405,13 +432,26 @@ Definition shrink_term_preserve_type {I} `{FInt I} (e : Term) : list Term
        then [e']
        else []
      | inl _ => []
-     end.
+     end ++
+     (let e' := multistep 500 e in
+      if (term_size e') <? (term_size e)
+      then [e']
+      else []).
 
 Definition shrink_term {I} `{FInt I} (e : Term) : list Term
   := (e' <- shrink_term' e;; guard (well_typed e');; ret e') ++
      (* Double shrinks in case first step isn't well_typed *)
      (e' <- shrink_term' e;; e'' <- shrink_term' e';; guard (well_typed e'');; ret e'') ++
      shrink_term_preserve_type e.
+
+(* Preserves typeof *)
+Definition shrink_term_filtered {I} `{FInt I} (e : Term) : list Term
+  := filter (fun e' =>
+             match typeof e', typeof e with
+             | Some x, Some y => ftype_eq x y
+             | None, None => true
+             | _, _ => false
+             end) (shrink_term e).
 
 Instance shrFType : Shrink FType :=
   {| shrink := shrink_ftype |}.
@@ -436,33 +476,6 @@ Definition factorial : @Term Int64.int FInt64
               (Num (Int64.repr 1))
               (Op Mul (App (Var 0) (Op Sub (Var 1) (Num (Int64.repr 1)))) (Var 1))).
 
-Definition step' (v : unit + Term) : (unit + Term)
-  := match v with
-     | inl tt => inl tt
-     | inr t => step t
-     end.
-
-Fixpoint multistep (n : nat) (v : Term) : Term
-  := match n with
-     | O => v
-     | S n =>
-       match step v with
-       | inl tt => v
-       | inr t => multistep n t
-       end
-     end.
-
-(* Returns a term only if it's fully evaluated *)
-Fixpoint multistep' (n : nat) (v : Term) : option Term
-  := match n with
-     | O => None
-     | S n =>
-       match step v with
-       | inl tt => Some v
-       | inr t => multistep' n t
-       end
-     end.
-
 QuickCheck (forAll (genFType 0) (well_formed_type 0)).
 QuickCheck (forAll (genFType 10) ftype_eq_refl).
 
@@ -474,7 +487,7 @@ QuickCheck (forAll (genFType 0) (fun τ => forAll (genTerm 0 [] τ)
                                                      | _ => false
                                                      end))).
 
-QuickCheck (forAll (genFType 0) (fun τ => forAllShrink (genTerm_terminating 0 [] τ) shrink_term_preserve_type
+QuickCheck (forAll (genFType 0) (fun τ => forAllShrink (genTerm_terminating 0 [] τ) shrink_term_filtered
                                               (fun e => match typeof e with
                                                      | Some τ' =>
                                                        whenFail
@@ -485,13 +498,6 @@ QuickCheck (forAll (genFType 0) (fun τ => forAllShrink (genTerm_terminating 0 [
                                                          "No type"
                                                          false
                                                      end))).
-
-(* Large counterexample to the above... *)
-(*
-<Int->Int, forall Int, <Int->Int>, <Int->Int, <>, <Int>, <Int, Int, Int>>>
-(λ <Int>-><Int->Int, forall Int, <Int->Int>, <Int->Int, <>, <Int>, <Int, Int, Int>>> <Int>. (λ Int-><Int->Int, forall Int, <Int->Int>, <Int->Int, <>, <Int>, <Int, Int, Int>>> Int. if0 v1 then <λ Int->Int Int. v3, Λ. 2, <λ Int->Int Int. v1>, <λ Int->Int Int. v3, v3, <v1>, v3>> else (λ <Int->Int, forall Int, <Int->Int>, <Int->Int, <>, <Int>, <Int, Int, Int>>>-><Int->Int, forall Int, <Int->Int>, <Int->Int, <>, <Int>, <Int, Int, Int>>> <Int->Int, forall Int, <Int->Int>, <Int->Int, <>, <Int>, <Int, Int, Int>>>. <λ Int->Int Int. v1, Λ. -1, <λ Int->Int Int. 4>, <λ Int->Int Int. v5, v1, v5, v5>>) v0 (v1 - 1)) 3) if0 -1 then <4> else <2>
-No type
-*)
 
 (* Test for preservation *)
 QuickCheck (forAll (genFType 0) (fun τ => forAll (genTerm 0 [] τ)
@@ -505,7 +511,7 @@ QuickCheck (forAll (genFType 0) (fun τ => forAll (genTerm 0 [] τ)
                                                      end))).
 
 (* Test that we evaluate without failing *)
-QuickCheck (forAll (genFType 0) (fun τ => forAllShrink (genTerm_terminating 0 [] τ) shrink_term_preserve_type
+QuickCheck (forAll (genFType 0) (fun τ => forAllShrink (genTerm_terminating 0 [] τ) shrink_term_filtered
                                               (fun e => match run_eval (eval e) with
                                                      | MlOk _ =>
                                                        checker true

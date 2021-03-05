@@ -407,12 +407,19 @@ Next Obligation.
   lia.
 Qed.
 
+Fixpoint zip_pred {X Y} (pred : X -> Y -> bool) (xs : list X) (ys : list Y) : bool
+  := match xs, ys with
+     | nil, nil => true
+     | x::xs, y::ys => pred x y && zip_pred pred xs ys
+     | _, _ => false
+     end.
+
 Obligation Tactic := try Tactics.program_simpl; try solve [cbn; try lia | repeat split; try solve [intros; discriminate | intros; intros CONTRA; inv CONTRA; discriminate]].
 Program Fixpoint ftype_eq (τ1 : FType) (τ2 : FType) {measure (type_size τ1 + type_size τ2)} : bool
   := match τ1, τ2 with
      | Arrow a1 b1, Arrow a2 b2 => ftype_eq a1 a2 && ftype_eq b1 b2
      | Prod es1, Prod es2 =>
-       forallb (bool_eq true) (zipwith (fun τ1 τ2 => ftype_eq τ1 τ2) es1 es2)
+       zip_pred (fun τ1 τ2 => ftype_eq τ1 τ2) es1 es2
      | TForall t1, TForall t2 => ftype_eq t1 t2
      | TVar x, TVar y => N.eqb x y
      | IntType, IntType => true
@@ -440,7 +447,7 @@ Program Fixpoint term_eq (e1 e2 : Term) {measure (term_size e1 + term_size e2)} 
      | TAbs x, TAbs y => term_eq x y
      | TApp e1 τ1, TApp e2 τ2 => term_eq e1 e2 && ftype_eq τ1 τ2
      | Tuple xs, Tuple ys =>
-       forallb (bool_eq true) (zipwith (fun e1 e2 => term_eq e1 e2) xs ys)
+       zip_pred (fun e1 e2 => term_eq e1 e2) xs ys
      | ProjN i1 e1, ProjN i2 e2 =>
        N.eqb i1 i2 && term_eq e1 e2
      | Num x, Num y => eq x y
