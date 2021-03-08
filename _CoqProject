@@ -6,3 +6,4 @@
 coq/SystemF.v
 coq/TestUtils.v
 coq/SystemFTest.v
+coq/Integers.v

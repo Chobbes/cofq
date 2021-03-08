@@ -23,29 +23,14 @@ From ITree Require Import
 (* Needed for the Show typeclass *)
 From QuickChick Require Import QuickChick.
 
+Require Import Cofq.Integers.
+
 Import MonadNotation.
 Local Open Scope monad_scope.
 Local Open Scope string_scope.
 
 Notation TypeInd := N.
 Notation VarInd  := N.
-
-Class FInt I : Type :=
-  { add  : I -> I -> I;
-    sub  : I -> I -> I;
-    mul  : I -> I -> I;
-    eq   : I -> I -> bool;
-    zero : I;
-  }.
-
-
-Instance FInt64 : FInt Int64.int :=
-  {| add  := Int64.add;
-     sub  := Int64.sub;
-     mul  := Int64.mul;
-     eq   := Int64.eq;
-     zero := Int64.zero;
-  |}.
 
 Unset Elimination Schemes.
 Inductive FType : Set :=
@@ -79,12 +64,6 @@ Section FTypeInd.
     - apply IH_TForall. auto.
   Qed.
 End FTypeInd.
-
-Inductive PrimOp : Set :=
-| Mul
-| Add
-| Sub
-.
 
 Inductive Term {I} `{FInt I} : Type :=
 | Var          : VarInd -> Term

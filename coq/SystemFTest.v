@@ -25,7 +25,9 @@ From ITree Require Import
      Interp.Recursion
      Events.Exception.
 
-Require Import TestUtils.
+From Cofq Require Import
+     TestUtils
+     Integers.
 
 Import ListNotations.
 Import MonadNotation.
