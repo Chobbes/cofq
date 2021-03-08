@@ -23,3 +23,15 @@ quickcheck: quickchick
 
 quickchick:
 	make -C QuickChick
+
+.PHONY: cofq-clean quickchick-clean vellvm-clean clean
+cofq-clean:
+	make -f CoqMakefile clean
+
+vellvm-clean:
+	make -C vellvm/src clean
+
+quickchick-clean:
+	make -C QuickChick clean
+
+clean: cofq-clean quickchick-clean vellvm-clean
