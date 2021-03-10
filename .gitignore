@@ -3,6 +3,7 @@
 *.vos
 *.glob
 *.aux
+.lia.cache
 *~
 CoqMakefile
 CoqMakefile.conf
