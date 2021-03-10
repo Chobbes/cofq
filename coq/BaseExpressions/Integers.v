@@ -16,9 +16,3 @@ Instance FInt64 : FInt Int64.int :=
      eq   := Int64.eq;
      zero := Int64.zero;
   |}.
-
-Inductive PrimOp : Set :=
-| Mul
-| Add
-| Sub
-.

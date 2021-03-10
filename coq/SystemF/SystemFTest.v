@@ -8,30 +8,38 @@ From Coq Require Import
      String
      List.
 
+From Vellvm Require Import
+     Numeric.Integers
+     Utils.Util.
+
+From Cofq.SystemF Require Import
+     SystemFDefinitions
+     SystemFSemantics
+     SystemFTyping
+     SystemFUtils
+     SystemFShow.
+
+From Cofq.BaseExpressions Require Import
+     IntegersShow.
+
+From Cofq.Test Require Import TestUtils.
+
+Require Import Lia.
+
 From ExtLib Require Import
      Structures.Monads
      Structures.Functor
      Eqv.
 
-From Vellvm Require Import
-     Numeric.Integers
-     Utils.Util.
-
-Require Import SystemF.
-Require Import Lia.
+Import ListNotations.
+Import MonadNotation.
+Local Open Scope monad_scope.
 
 From ITree Require Import
      ITree
      Interp.Recursion
      Events.Exception.
 
-From Cofq Require Import
-     TestUtils
-     Integers.
-
-Import ListNotations.
-Import MonadNotation.
-Local Open Scope monad_scope.
 
 Definition elems_fail {A : Type} (l : list A) :=
   let n := length l in
@@ -478,6 +486,17 @@ Definition factorial : @Term Int64.int FInt64
               (Num (Int64.repr 1))
               (Op Mul (App (Var 0) (Op Sub (Var 1) (Num (Int64.repr 1)))) (Var 1))).
 
+
+Unset Guard Checking.
+Fixpoint run_eval (t : ITreeDefinition.itree Failure Term) : MlResult Term string
+  := match observe t with
+     | RetF x => MlOk _ string x
+     | TauF t => run_eval t
+     | VisF _ (Throw msg) k => MlError _ string msg
+     end.
+Set Guard Checking.
+
+
 QuickCheck (forAll (genFType 0) (well_formed_type 0)).
 QuickCheck (forAll (genFType 10) ftype_eq_refl).
 
@@ -564,25 +583,3 @@ QuickCheck (forAll (genFType 0) (fun τ => forAll (genTerm_terminating 0 [] τ)
 (*                                                        whenFail x *)
 (*                                                        false *)
 (*                                                      end))). *)
-
-(*
-Extract Constant defNumTests    => "1".
-QuickChick (checker
-              (let e := (run_eval (eval (App (Num zero) (Op Mul (Num (Int64.repr 4)) (Num (Int64.repr 3)))))) in
-              collect e
-              (match e with
-               | MlOk (Num x) => eq x (Int64.repr 12)
-               | _ => false
-               end))
-           ).
-
-QuickChick (checker (match (run_eval (eval (App (Fix (Arrow IntType IntType) IntType (Op Mul (Var 1) (Num (Int64.repr 4)))) (Num (Int64.repr 3))))) with
-                     | MlOk (Num x) => eq x (Int64.repr 12)
-                     | _ => false
-                       end)
-           ).
-
-QuickChick (checker
-              ( let e := run_eval (eval (App factorial (Num (Int64.repr 5)))) in
-                collect e true)).
-*)
