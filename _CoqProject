@@ -13,6 +13,7 @@ coq/SystemF/SystemFUtils.v
 coq/BaseExpressions/PrimOps.v
 coq/BaseExpressions/Integers.v
 coq/BaseExpressions/IntegersShow.v
+coq/BaseExpressions/BaseExpressionTests.v
 coq/Show/ShowUtils.v
 coq/Test/TestUtils.v
 coq/Utils/Utils.v

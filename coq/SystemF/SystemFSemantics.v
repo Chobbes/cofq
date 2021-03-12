@@ -6,7 +6,9 @@ From Cofq.SystemF Require Import
 From Cofq.Utils Require Import Utils.
 From Cofq.Show Require Import ShowUtils.
 
-From Coq Require Import Lia.
+From Coq Require Import
+     Lia
+     String.
 
 From ExtLib Require Import
      Structures.Monads
@@ -179,6 +181,33 @@ Section SingleStep.
     pose proof (list_sum_map term_size e es Heq_anonymous).
     lia.
   Qed.
+
+  Definition step' {I} `{FInt I} (v : unit + Term) : (unit + Term)
+    := match v with
+       | inl tt => inl tt
+       | inr t => step t
+       end.
+
+  Fixpoint multistep {I} `{FInt I} (n : nat) (v : Term) : Term
+    := match n with
+       | O => v
+       | S n =>
+         match step v with
+         | inl tt => v
+         | inr t => multistep n t
+         end
+       end.
+
+  (* Returns a term only if it's fully evaluated *)
+  Fixpoint multistep' {I} `{FInt I} (n : nat) (v : Term) : option Term
+    := match n with
+       | O => None
+       | S n =>
+         match step v with
+         | inl tt => Some v
+         | inr t => multistep' n t
+         end
+       end.
 End SingleStep.
 
 (** Denotation of SystemF in terms of itrees. *) 

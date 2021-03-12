@@ -4,7 +4,9 @@ From Cofq.SystemF Require Import
 From Cofq.Utils Require Import
      Utils.
 
-From Coq Require Import Lia.
+From Coq Require Import
+     Lia
+     Program.Wf.
 
 From ExtLib Require Import
      Structures.Monads

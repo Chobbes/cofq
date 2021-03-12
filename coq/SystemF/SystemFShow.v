@@ -1,6 +1,9 @@
 From Cofq.SystemF Require Import SystemFDefinitions.
 From Cofq.Show Require Import ShowUtils.
 
+From Coq Require Import String.
+Open Scope string_scope.
+
 Fixpoint showFType_helper (prec : Precedence) (t : FType) :=
   match t with
   | Arrow a b => parens prec PrecApp (showFType_helper PrecInner a ++ "->" ++ showFType_helper PrecApp b)

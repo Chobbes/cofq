@@ -3,7 +3,7 @@ From Cofq.SystemF Require Import
      SystemFUtils
      SystemFSemantics.
 
-From Coq Require Import Lia.
+From Coq Require Import Lia ssrbool.
 
 From ExtLib Require Import
      Structures.Monads
@@ -92,3 +92,18 @@ Next Obligation.
 Admitted.
 
 Definition typeof {I} `{FInt I} : Term -> option FType := typeof' 0 nil.
+
+(* Check whether a type is closed *)
+Fixpoint is_closed' (tc : N) (τ : FType) : bool
+  := match τ with
+     | Arrow τ1 τ2 => is_closed' tc τ1 && is_closed' tc τ2
+     | Prod τs => forallb (is_closed' tc) τs
+     | TForall τ => is_closed' (tc+1) τ
+     | TVar x => N.ltb x tc
+     | IntType => true
+     end.
+
+Definition is_closed := is_closed' 0.
+
+Definition well_typed {I} `{FInt I} (e : Term) : bool
+  := ssrbool.isSome (typeof e).

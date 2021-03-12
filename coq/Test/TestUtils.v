@@ -1,7 +1,9 @@
 From Coq Require Import
-     String.
+     ZArith
+     String
+     List.
 
-From QuickChick Require Import Show.
+From QuickChick Require Import QuickChick.
 Set Warnings "-extraction-opaque-accessed,-extraction".
 
 (* I don't know why, but I need this to make Extract Inductive work below... *)
@@ -25,3 +27,26 @@ Instance showMLResult {A E} `{Show A} `{Show E} : Show (MlResult A E)
             | @MlError _ _ x => "MlError " ++ show x
             end
     |}.
+
+Fixpoint addIndices' {A} (i : N) (l : list A) : list (N * A)
+  := match l with
+     | nil => nil
+     | (x::xs) => (i,x) :: addIndices' (N.succ i) xs
+     end.
+
+Definition addIndices {A} := @addIndices' A 0.
+
+Definition map_both {A B} (f : A -> B) (e : A + A) : B + B :=
+  match e with
+  | inl a => inl (f a)
+  | inr a => inr (f a)
+  end.
+
+Definition elems_fail {A : Type} (l : list A) :=
+  let n := List.length l in
+  bindGen (choose (0, n - 1))
+          (fun n' =>
+             match (List.nth_error l n') with
+             | Some x => returnGen x
+             | None => failGen
+             end).
