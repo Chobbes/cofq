@@ -1,26 +1,10 @@
 From Coq Require Export
      ZArith
-     String
      List.
-
-From Vellvm Require Import
-     Numeric.Integers
-     Utils.Util.
-
-From ITree Require Import
-     Basics
-     ITree
-     Interp.Recursion
-     Events.Exception.
-
-From QuickChick Require Import Show.
 
 From Cofq.BaseExpressions Require Export
      Integers
      PrimOps.
-
-From Cofq.Utils Require Import
-     Utils.
 
 Notation TypeInd := N.
 Notation VarInd  := N.
