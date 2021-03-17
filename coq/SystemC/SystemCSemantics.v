@@ -74,13 +74,14 @@ Section Substitution.
       CProg (map (fun '(i, hv) => cterm_lift_heap_value lift_amt (n+i) hv) (addIndices hvs))
     end.
 
-  Fixpoint ctype_lift (n : N) (τ : FType) : FType :=
+  Fixpoint ctype_lift (lift_amt : N) (n : N) (τ : CType) : CType :=
     match τ with
-    | Arrow τ1 τ2 => Arrow (type_lift n τ1) (type_lift n τ2)
-    | Prod τs => Prod (map (type_lift n) τs)
-    | TForall τ' => TForall (type_lift (N.succ n) τ')
-    | TVar x => if N.ltb x n then TVar x else TVar (x + 1)
-    | IntType => τ
+    | CTForall n_type_bindings arrows => CTForall n_type_bindings (map (ctype_lift lift_amt (n + n_type_bindings)) arrows)
+    | CTExists τ => CTExists (ctype_lift lift_amt (n + 1) τ)
+    | CProd τs => CProd (map (ctype_lift lift_amt n) τs)
+    | CTVar x =>
+      if N.ltb x n then CTVar x else CTVar (x + lift_amt)
+    | CIntType => τ
     end.
 
   Fixpoint term_subst {I} `{FInt I} (v : VarInd) (body arg : Term) : Term :=
