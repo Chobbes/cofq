@@ -1,4 +1,4 @@
-From Coq Require Import List Lia.
+From Coq Require Import List Lia ZArith.
 
 Global Open Scope list_scope.
 
@@ -39,3 +39,11 @@ Fixpoint zipwith {X Y Z} (f : X -> Y -> Z) (xs : list X) (ys : list Y) : list Z
      | (x :: xs), (y :: ys) => f x y :: (zipwith f xs ys)
      | _, _ => nil
      end.
+
+Fixpoint addIndices' {A} (i : N) (l : list A) : list (N * A)
+  := match l with
+     | nil => nil
+     | (x::xs) => (i,x) :: addIndices' (N.succ i) xs
+     end.
+
+Definition addIndices {A} := @addIndices' A 0.

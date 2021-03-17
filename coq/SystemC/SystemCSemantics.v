@@ -3,11 +3,12 @@ From Cofq.SystemC Require Import
      SystemCShow. (* Need show for errors in evaluation *)
 
 From Cofq.Utils Require Import Utils.
+From Cofq.BaseExpressions Require Import Integers.
 From Cofq.Show Require Import ShowUtils.
 
 From Coq Require Import
-     Lia
-     String.
+     List
+     ZArith.
 
 From ExtLib Require Import
      Structures.Monads
@@ -26,26 +27,54 @@ From ITree Require Import
 From Vellvm.Utils Require Import Util.
 
 Section Substitution.
-  (* Lift by 2 because fixpoint has a argument in addition to referring to itself *)
-  Fixpoint term_lift {I} `{FInt I} (n : N) (term : Term) : Term :=
-    match term with
-    | Var x =>
+
+  Fixpoint cterm_lift_raw_value {I} `{FInt I} (lift_amt : N) (n : N) (rv : CRawValue) : CRawValue :=
+    match rv with
+    | CNum x => CNum x
+    | CVar x =>
       if N.ltb x n
-      then Var x
-      else Var (x + 2)
-    | Ann term' type => Ann (term_lift n term') type
-    | Fix fix_type arg_type fbody => Fix fix_type arg_type (term_lift (n+2) fbody)
-    | App e1 e2 => App (term_lift n e1) (term_lift n e2)
-    | TAbs e => TAbs (term_lift n e)
-    | TApp e t => TApp (term_lift n e) t
-    | Tuple es => Tuple (map (term_lift n) es)
-    | ProjN i es => ProjN i (term_lift n es)
-    | Num x => Num x
-    | If0 c e1 e2 => If0 (term_lift n c) (term_lift n e1) (term_lift n e2)
-    | Op op e1 e2 => Op op (term_lift n e1) (term_lift n e2)
+      then CVar x
+      else CVar (x + lift_amt)
+    | CTuple es => CTuple (map (cterm_lift_value lift_amt n) es)
+    | CPack t1 rv t2 => CPack t1 (cterm_lift_raw_value lift_amt n rv) t2
+    end
+  with
+  cterm_lift_value {I} `{FInt I} (lift_amt : N) (n : N) (v : CValue) : CValue :=
+    match v with
+    | CAnnotated rv t => CAnnotated (cterm_lift_raw_value lift_amt n rv) t
     end.
 
-  Fixpoint type_lift (n : N) (τ : FType) : FType :=
+  Definition cterm_lift_declaration {I} `{FInt I} (lift_amt : N) (n : N) (dec : CDeclaration) : CDeclaration :=
+    (* TODO: lift by varied amount for declarations. E.g, unpack binds value and type? *)
+    match dec with
+    | CVal v => CVal (cterm_lift_value lift_amt n v)
+    | CProjN i v => CProjN i (cterm_lift_value lift_amt n v)
+    | COp op v1 v2 => COp op (cterm_lift_value lift_amt n v1) (cterm_lift_value lift_amt n v2)
+    | CUnpack rv => CUnpack (cterm_lift_raw_value lift_amt n rv)
+    end.
+
+  Fixpoint cterm_lift_term {I} `{FInt I} (lift_amt : N) (n : N) (term : CTerm) : CTerm :=
+    match term with
+    (* Let should always bind a single term variable *)
+    | CLet d e => CLet (cterm_lift_declaration lift_amt n d) (cterm_lift_term lift_amt (n+1) e)
+    | CApp v targs args => CApp (cterm_lift_value lift_amt n v) targs (map (cterm_lift_value lift_amt n) args)
+    | CIf0 c e1 e2 => CIf0 (cterm_lift_value lift_amt n c) (cterm_lift_term lift_amt n e2) (cterm_lift_term lift_amt n e2)
+    | CHalt v t => CHalt (cterm_lift_value lift_amt n v) t
+    end.
+
+  Definition cterm_lift_heap_value {I} `{FInt I} (lift_amt : N) (n : N) (hv : CHeapValue) : CHeapValue :=
+    match hv with
+    | Code t n ts body => Code t n ts (cterm_lift_term lift_amt n body)
+    end.
+
+  (* Each heap value in the list is bound to a type variable in order *)
+  Definition CProgram {I} `{FInt I} (lift_amt : N) (n : N) (prog : CProgram) : CProgram :=
+    match prog with
+    | CProg hvs =>
+      CProg (map (fun '(i, hv) => cterm_lift_heap_value lift_amt (n+i) hv) (addIndices hvs))
+    end.
+
+  Fixpoint ctype_lift (n : N) (τ : FType) : FType :=
     match τ with
     | Arrow τ1 τ2 => Arrow (type_lift n τ1) (type_lift n τ2)
     | Prod τs => Prod (map (type_lift n) τs)

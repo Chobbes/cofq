@@ -28,14 +28,6 @@ Instance showMLResult {A E} `{Show A} `{Show E} : Show (MlResult A E)
             end
     |}.
 
-Fixpoint addIndices' {A} (i : N) (l : list A) : list (N * A)
-  := match l with
-     | nil => nil
-     | (x::xs) => (i,x) :: addIndices' (N.succ i) xs
-     end.
-
-Definition addIndices {A} := @addIndices' A 0.
-
 Definition map_both {A B} (f : A -> B) (e : A + A) : B + B :=
   match e with
   | inl a => inl (f a)

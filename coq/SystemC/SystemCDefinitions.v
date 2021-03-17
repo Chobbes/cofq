@@ -65,7 +65,7 @@ Inductive CTerm {I} `{FInt I} : Type :=
 | CLet          : CDeclaration -> CTerm -> CTerm
 | CApp          : CValue -> list CType -> list CValue -> CTerm
 | CIf0          : CValue -> CTerm -> CTerm -> CTerm
-| CHalt         : CType -> CValue -> CTerm
+| CHalt         : CValue -> CType -> CTerm
 .
 
 Inductive CHeapValue {I} `{FInt I} : Type :=
