@@ -8,6 +8,7 @@ From Cofq.BaseExpressions Require Import Integers.
 From Cofq.Show Require Import ShowUtils.
 
 From Coq Require Import
+     String
      List
      Lia
      ZArith.
@@ -218,7 +219,105 @@ End Substitution.
 Section Denotation.
   Definition Failure := exceptE string.
 
-  Definition eval_body {I} `{FInt I} `{Show I} (e : Term) : itree (callE Term Term +' Failure) Term :=
+  Definition crv_to_v {I} `{FInt I} (val : CValue) : CRawValue
+    := match val with
+       | CAnnotated rv τ => rv
+       end.
+
+  Open Scope string_scope.
+  Definition ceval_declaration {I} `{FInt I} `{Show I} (dec : CDeclaration) : itree Failure ((CType * CRawValue) + CRawValue)
+    := match dec with
+       | CVal x =>
+         ret (inr (crv_to_v x))
+       | CProjN i v =>
+         match crv_to_v v with
+         | CTuple vs =>
+           match nth_error vs (N.to_nat i) with
+           | Some e => ret (inr (crv_to_v e))
+           | None => throw ("Tuple projection out of bounds: " ++ show dec)
+           end
+         | _ =>
+           throw ("Ill-typed projection: " ++ show dec)
+         end
+       | COp op e1 e2 =>
+         match crv_to_v e1, crv_to_v e2 with
+         | CNum x, CNum y =>
+           ret (inr (CNum (eval_op op x y)))
+         | _, _ =>
+           throw ("Ill-typed operation: " ++ show dec)
+         end
+       | CUnpack x =>
+         (* TODO: not sure about variables... *)
+         match x with
+         | CPack τ1 e τ2 => ret (inl (τ1, e)) 
+         | _ => throw ("Ill-typed unpack: " ++ show dec)
+         end
+       end.
+
+  Variant CodeE : Type -> Type :=
+  | CodeLookup  (id: VarInd): CodeE CHeapValue.
+
+  Notation term_E := (callE CTerm CRawValue +' (CodeE +' Failure)).
+  
+  Definition fail_to_term_E {I} `{FInt I} : Failure ~> term_E :=
+    fun T f => inr1 (inr1 f).
+
+  Definition ceval_declaration' {I} `{FInt I} `{Show I} (dec : CDeclaration) : itree term_E ((CType * CRawValue) + CRawValue) :=
+    translate fail_to_term_E (ceval_declaration dec).
+
+  Definition ceval_term {I} `{FInt I} `{Show I} (e : CTerm) : itree term_E CRawValue
+    := match e with
+       | CLet dec body =>
+         d <- ceval_declaration' dec;;
+         match d with
+         | inl (τ, dv) =>
+           call (ctype_subst_term 0 (cterm_subst_term 0 body dv) τ)
+         | inr dv =>
+           call (cterm_subst_term 0 body dv)
+         end
+       | CApp f args =>
+         match crv_to_v f with
+         | CVar x =>
+           hv <- trigger (CodeLookup x);;
+           match hv with
+           | CCode τ n x1 x2 =>
+             
+           end
+         | CTApp rv τ =>
+           _
+         | _ => throw ("Ill-formed application: " ++ show e)
+         end
+       | CIf0 c e1 e2 =>
+         
+       | CHalt v τ =>
+         _
+       end.
+
+
+Inductive CDeclaration {I} `{FInt I} : Type :=
+| CVal          : CValue -> CDeclaration
+| CProjN        : N -> CValue -> CDeclaration
+| COp           : PrimOp -> CValue -> CValue -> CDeclaration
+| CUnpack       : CRawValue -> CDeclaration
+.
+
+Inductive CTerm {I} `{FInt I} : Type :=
+| CLet          : CDeclaration -> CTerm -> CTerm
+| CApp          : CValue -> list CValue -> CTerm
+| CIf0          : CValue -> CTerm -> CTerm -> CTerm
+| CHalt         : CValue -> CType -> CTerm
+.
+
+Inductive CHeapValue {I} `{FInt I} : Type :=
+| CCode : CType -> N -> list CType -> CTerm -> CHeapValue
+.
+
+Inductive CProgram {I} `{FInt I} : Type :=
+| CProg : list CHeapValue -> CProgram
+.
+
+
+  Definition eval_body {I} `{FInt I} `{Show I} (e : CTerm) : itree (callE Term Term +' Failure) Term :=
     match e with
     | Ann e t => call e
     | App e1 e2 =>
