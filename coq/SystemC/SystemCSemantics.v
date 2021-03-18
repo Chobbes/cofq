@@ -142,7 +142,7 @@ Section Substitution.
     end.
 
   Obligation Tactic := try Tactics.program_simpl; try solve [cbn; try lia | repeat split; try solve [intros; discriminate]].
-  Program Fixpoint type_subst_in_type (v : TypeInd) (τ : CType) (arg : CType) {measure (ctype_size τ)} : CType :=
+  Program Fixpoint ctype_subst_in_type (v : TypeInd) (τ : CType) (arg : CType) {measure (ctype_size τ)} : CType :=
     match τ with
     | CTVar x =>
       if N.eqb x v
@@ -151,9 +151,9 @@ Section Substitution.
            then CTVar (x-1)
            else CTVar x
     | CProd τs =>
-      CProd (map_In τs (fun τ HIn => type_subst_in_type v τ arg))
-    | CTForall n τs => CTForall n (map (fun τ => type_subst_in_type (v+n) τ (ctype_lift 1 0 arg)) τs)
-    | CTExists τ => CTExists (type_subst_in_type (v+1) τ (ctype_lift 1 0 arg))
+      CProd (map_In τs (fun τ HIn => ctype_subst_in_type v τ arg))
+    | CTForall n τs => CTForall n (map_In τs (fun τ HIn => ctype_subst_in_type (v+n) τ (ctype_lift 1 0 arg)))
+    | CTExists τ => CTExists (ctype_subst_in_type (v+1) τ (ctype_lift 1 0 arg))
     | CIntType => CIntType
     end.
   Next Obligation.
@@ -161,123 +161,60 @@ Section Substitution.
     pose proof (list_sum_map ctype_size τ τs HIn).
     lia.
   Qed.
-
-  Definition ctype_subst_declaration {I} `{FInt I} (v : TypeInd) (e : CDeclaration) (arg_type : CType) : CDeclaration
-    := match e with
-       | CVal x => 
-       | CProjN x x0 => _
-       | COp x x0 x1 => _
-       | CUnpack x => _
-       end
-  
-  Fixpoint ctype_subst_term {I} `{FInt I} (v : TypeInd) (e : CTerm) (arg_type : CType) : CTerm
-    := match e with
-       | CLet dec e => CLet (ctype_subst
-       | CApp x x0 x1 => _
-       | CIf0 x x0 x1 => _
-       | CHalt x x0 => _
-       end
-
-
-
-      match e with
-       | TAbs e => TAbs (type_subst (v+1) e (type_lift 0 arg_type))
-       | TApp e τ => TApp (type_subst v e arg_type) (type_subst_in_type v τ arg_type)
-       | Fix fτ τ body => Fix (type_subst_in_type v fτ arg_type) (type_subst_in_type v τ arg_type) (type_subst v body arg_type)
-       | App e1 e2 => App (type_subst v e1 arg_type) (type_subst v e2 arg_type)
-       | If0 c e1 e2 => If0 (type_subst v c arg_type) (type_subst v e1 arg_type) (type_subst v e2 arg_type)
-       | Op op e1 e2 => Op op (type_subst v e1 arg_type) (type_subst v e2 arg_type)
-       | Tuple es => Tuple (map (fun e => type_subst v e arg_type) es)
-       | ProjN i e => ProjN i (type_subst v e arg_type)
-       | Ann e τ => Ann (type_subst v e arg_type) (type_subst_in_type v τ arg_type)
-       | Num x => Num x
-       | Var x => Var x
-       end.
-
-  Definition app_fix {I} `{FInt I} (fix_type arg_type : FType) (body : Term) (arg : Term) : Term :=
-    term_subst 1 (term_subst 0 body (Fix fix_type arg_type body)) arg.
-End Substitution.
-
-
-(** Single-step semantics for SystemF, useful for testing. *)
-Section SingleStep.
-  Obligation Tactic := try Tactics.program_simpl; try solve [cbn; try lia | repeat split; try solve [intros; discriminate]].
-  Program Fixpoint step {I} `{FInt I} (e : Term) {measure (term_size e)} : (unit + Term) :=
-    match e with
-    | Ann e t => step e
-    | Fix fix_type arg_type body => inl tt
-    | App (Fix fix_type arg_type body) arg =>
-      inr (app_fix fix_type arg_type body arg)
-    | App e1 e2 =>
-      e1v <- step e1;;
-      inr (App e1v e2)
-    | Op op (Num xn) (Num yn) =>
-      inr (Num (eval_op op xn yn))
-    | Op op (Num xn) y =>
-      yv <- step y ;;
-      inr (Op op (Num xn) yv)
-    | Op op x y =>
-      xv <- step x ;;
-      inr (Op op xv y)
-    | TApp (TAbs e) arg_type =>
-      inr (type_subst 0 e arg_type)
-    | TApp e t =>
-      e' <- step e;;
-      inr (TApp e' t)
-    | ProjN i (Tuple es) =>
-      match nth_error es (N.to_nat i) with
-      | Some e => step e
-      | None => inl tt
-      end
-    | ProjN i e =>
-      ev <- step e;;
-      inr (ProjN i ev)
-    | If0 (Num x) e1 e2 =>
-      if eq x zero
-      then inr e1
-      else inr e2
-    | If0 c e1 e2 =>
-      cv <- step c;;
-      inr (If0 cv e1 e2)
-    | _ => inl tt
-    end.
   Next Obligation.
     cbn.
-    symmetry in Heq_anonymous.
-    apply nth_error_In in Heq_anonymous.
-    pose proof (list_sum_map term_size e es Heq_anonymous).
+    pose proof (list_sum_map ctype_size τ τs HIn).
     lia.
   Qed.
 
-  Definition step' {I} `{FInt I} (v : unit + Term) : (unit + Term)
-    := match v with
-       | inl tt => inl tt
-       | inr t => step t
+  Fixpoint ctype_subst_raw_value {I} `{FInt I} (v : TypeInd) (rv : CRawValue) (arg_type : CType) : CRawValue
+    := match rv with
+       | CTuple es =>
+         CTuple (map (fun e => ctype_subst_value v e arg_type) es)
+       | CPack τ1 rv τ2 =>
+         CPack (ctype_subst_in_type v τ1 arg_type) rv (ctype_subst_in_type v τ2 arg_type)
+       | CTApp x τ =>
+         CTApp x (ctype_subst_in_type v τ arg_type)
+       | CNum x => rv
+       | CVar x => rv
+       end
+  with
+  ctype_subst_value {I} `{FInt I} (v : TypeInd) (val : CValue) (arg_type : CType) : CValue
+    := match val with
+       | CAnnotated rv τ => CAnnotated rv (ctype_subst_in_type v τ arg_type)
        end.
 
-  Fixpoint multistep {I} `{FInt I} (n : nat) (v : Term) : Term
-    := match n with
-       | O => v
-       | S n =>
-         match step v with
-         | inl tt => v
-         | inr t => multistep n t
-         end
+  Definition ctype_subst_declaration {I} `{FInt I} (v : TypeInd) (e : CDeclaration) (arg_type : CType) : CDeclaration
+    := match e with
+       | CVal x =>
+         CVal (ctype_subst_value v x arg_type)
+       | CProjN i e =>
+         CProjN i (ctype_subst_value v e arg_type)
+       | COp op e1 e2 =>
+         COp op (ctype_subst_value v e1 arg_type) (ctype_subst_value v e2 arg_type)
+       | CUnpack x =>
+         CUnpack (ctype_subst_raw_value v x arg_type)
        end.
-
-  (* Returns a term only if it's fully evaluated *)
-  Fixpoint multistep' {I} `{FInt I} (n : nat) (v : Term) : option Term
-    := match n with
-       | O => None
-       | S n =>
-         match step v with
-         | inl tt => Some v
-         | inr t => multistep' n t
-         end
+  
+  Fixpoint ctype_subst_term {I} `{FInt I} (v : TypeInd) (e : CTerm) (arg_type : CType) : CTerm
+    := match e with
+         (* Unpack binds a type variable and a term variable *)
+       | CLet (CUnpack x) e =>
+         CLet (ctype_subst_declaration v (CUnpack x) arg_type) (ctype_subst_term (v+1) e arg_type)
+       | CLet dec e =>
+         CLet (ctype_subst_declaration v dec arg_type) (ctype_subst_term v e arg_type)
+       | CApp f vs =>
+         CApp (ctype_subst_value v f arg_type) (map (fun e => ctype_subst_value v e arg_type) vs)
+       | CIf0 c e1 e2 =>
+         CIf0 (ctype_subst_value v c arg_type)
+              (ctype_subst_term v e1 arg_type)
+              (ctype_subst_term v e2 arg_type)
+       | CHalt x τ =>
+         CHalt (ctype_subst_value v x arg_type) (ctype_subst_in_type v τ arg_type)
        end.
-End SingleStep.
+End Substitution.
 
-(** Denotation of SystemF in terms of itrees. *) 
+(** Denotation of SystemC in terms of itrees. *) 
 Section Denotation.
   Definition Failure := exceptE string.
 
