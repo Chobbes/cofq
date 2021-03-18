@@ -52,7 +52,9 @@ with CRawValue {I} `{FInt I} : Type :=
 | CNum          : I -> CRawValue
 | CVar          : VarInd -> CRawValue
 | CTuple        : list CValue -> CRawValue
-| CPack         : CType -> CRawValue -> CType -> CRawValue.
+| CPack         : CType -> CRawValue -> CType -> CRawValue
+| CTApp         : CRawValue -> CType -> CRawValue
+.
 
 Inductive CDeclaration {I} `{FInt I} : Type :=
 | CVal          : CValue -> CDeclaration
@@ -63,7 +65,7 @@ Inductive CDeclaration {I} `{FInt I} : Type :=
 
 Inductive CTerm {I} `{FInt I} : Type :=
 | CLet          : CDeclaration -> CTerm -> CTerm
-| CApp          : CValue -> list CType -> list CValue -> CTerm
+| CApp          : CValue -> list CValue -> CTerm
 | CIf0          : CValue -> CTerm -> CTerm -> CTerm
 | CHalt         : CValue -> CType -> CTerm
 .

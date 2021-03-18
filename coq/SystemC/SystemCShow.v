@@ -30,6 +30,7 @@ with showCRawValue' {I} `{FInt I} `{Show I} (rv : CRawValue) :=
        | CVar x => "CVar (" ++ show x ++ ")"
        | CTuple x => "CTuple " ++ show (map showCValue' x)
        | CPack t1 rv t2 => "CPack (" ++ show t1 ++ ") (" ++ showCRawValue' rv ++ ") (" ++ show t2 ++ ")"
+       | CTApp rv τ => "CTApp (" ++ showCRawValue' rv ++ ") (" ++ show τ ++ ")"
        end.
 
 Instance showCValue {I} `{FInt I} `{Show I} : Show CValue :=

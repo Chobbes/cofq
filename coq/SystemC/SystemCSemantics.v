@@ -39,6 +39,7 @@ Section Substitution.
       else CVar (x + lift_amt)
     | CTuple es => CTuple (map (cterm_lift_value lift_amt n) es)
     | CPack t1 rv t2 => CPack t1 (cterm_lift_raw_value lift_amt n rv) t2
+    | CTApp rv τ => CTApp (cterm_lift_raw_value lift_amt n rv) τ
     end
   with
   cterm_lift_value {I} `{FInt I} (lift_amt : N) (n : N) (v : CValue) : CValue :=
@@ -59,7 +60,7 @@ Section Substitution.
     match term with
     (* Let should always bind a single term variable *)
     | CLet d e => CLet (cterm_lift_declaration lift_amt n d) (cterm_lift_term lift_amt (n+1) e)
-    | CApp v targs args => CApp (cterm_lift_value lift_amt n v) targs (map (cterm_lift_value lift_amt n) args)
+    | CApp v args => CApp (cterm_lift_value lift_amt n v) (map (cterm_lift_value lift_amt n) args)
     | CIf0 c e1 e2 => CIf0 (cterm_lift_value lift_amt n c) (cterm_lift_term lift_amt n e2) (cterm_lift_term lift_amt n e2)
     | CHalt v t => CHalt (cterm_lift_value lift_amt n v) t
     end.
@@ -110,6 +111,7 @@ Section Substitution.
     | CNum x => CNum x
     | CTuple es => CTuple (map (fun e => cterm_subst_value v e arg) es)
     | CPack t1 rv t2 => CPack t1 (cterm_subst_raw_value v rv arg) t2
+    | CTApp rv τ => CTApp (cterm_subst_raw_value v rv arg) τ
     end
   with
   cterm_subst_value {I} `{FInt I} (v : VarInd) (body : CValue) (arg : CRawValue) : CValue :=
@@ -129,8 +131,8 @@ Section Substitution.
     match body with
     | CLet dec e => (* Need to lift here *)
       CLet (cterm_subst_declaration v dec arg) (cterm_subst_term (v+1) e arg)
-    | CApp f τs es =>
-      CApp (cterm_subst_value v f arg) τs (map (fun e => cterm_subst_value v e arg) es)
+    | CApp f es =>
+      CApp (cterm_subst_value v f arg) (map (fun e => cterm_subst_value v e arg) es)
     | CIf0 c e1 e2 =>
       CIf0 (cterm_subst_value v c arg)
            (cterm_subst_term v e1 arg)

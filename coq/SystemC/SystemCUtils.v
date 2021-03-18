@@ -25,6 +25,7 @@ Fixpoint craw_value_size {I} `{FInt I} (rv : CRawValue) : nat :=
   | CVar x => 0
   | CTuple es => 1 + (list_sum (map cvalue_size es))
   | CPack τ1 rv τ2 => 1 + craw_value_size rv
+  | CTApp rv τ => 1 + craw_value_size rv
   end
 with
 cvalue_size {I} `{FInt I} (val : CValue) : nat :=
@@ -43,7 +44,7 @@ Fixpoint cdeclaration_size {I} `{FInt I} (dec : CDeclaration) : nat :=
 Fixpoint cterm_size {I} `{FInt I} (term : CTerm) : nat :=
   match term with
   | CLet dec e => 1 + cdeclaration_size dec + cterm_size e
-  | CApp f τs vs => 1 + cvalue_size f + (list_sum (map cvalue_size vs))
+  | CApp f vs => 1 + cvalue_size f + (list_sum (map cvalue_size vs))
   | CIf0 c e1 e2 => 1 + cvalue_size c + cterm_size e1 + cterm_size e2
   | CHalt e τ => 1 + cvalue_size e
   end.
