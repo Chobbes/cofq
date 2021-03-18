@@ -64,7 +64,7 @@ Section Substitution.
 
   Definition cterm_lift_heap_value {I} `{FInt I} (lift_amt : N) (n : N) (hv : CHeapValue) : CHeapValue :=
     match hv with
-    | Code t n ts body => Code t n ts (cterm_lift_term lift_amt n body)
+    | CCode t n ts body => CCode t n ts (cterm_lift_term lift_amt n body)
     end.
 
   (* Each heap value in the list is bound to a type variable in order *)
@@ -84,23 +84,58 @@ Section Substitution.
     | CIntType => τ
     end.
 
-  Fixpoint term_subst {I} `{FInt I} (v : VarInd) (body arg : Term) : Term :=
+  (** * Actual substitution *)
+
+  (* Applications must be a code block applied using the CApp
+     constructor to some CType and CValue arguments.
+
+     CApp : CValue -> list CType -> list CValue -> CTerm
+
+     Which means that the code block has to be referenced through an
+     annotated CVar, as there's no other way to reference code in a
+     value.
+
+     The body of CCode is a term, so we'll have to be able to
+     substitute values and types into terms.
+   *)
+
+
+  Fixpoint cterm_subst_raw_value {I} `{FInt I} (v : VarInd) (body arg : CRawValue) : CRawValue :=
     match body with
-    | Var x =>
+    | CVar x =>
       if N.eqb x v
       then arg
-      else Var x
-    | Fix fix_type arg_type fbody =>
-      Fix fix_type arg_type (term_subst (v + 2) fbody (term_lift 0 arg))
-    | Ann e t => Ann (term_subst v e arg) t
-    | App e1 e2 => App (term_subst v e1 arg) (term_subst v e2 arg)
-    | TAbs e => TAbs (term_subst v e arg)
-    | TApp e t => TApp (term_subst v e arg) t
-    | Tuple es => Tuple (map (fun e => term_subst v e arg) es)
-    | ProjN i e => ProjN i (term_subst v e arg)
-    | Num x => Num x
-    | If0 c e1 e2 => If0 (term_subst v c arg) (term_subst v e1 arg) (term_subst v e2 arg)
-    | Op op e1 e2 => Op op (term_subst v e1 arg) (term_subst v e2 arg)
+      else CVar x
+    | CNum x => CNum x
+    | CTuple es => CTuple (map (fun e => cterm_subst_value v e arg) es)
+    | CPack t1 rv t2 => CPack t1 (cterm_subst_raw_value v rv arg) t2
+    end
+  with
+  cterm_subst_value {I} `{FInt I} (v : VarInd) (body : CValue) (arg : CRawValue) : CValue :=
+    match body with
+    | CAnnotated rv t => CAnnotated (cterm_subst_raw_value v rv arg) t
+    end.
+
+  Definition cterm_subst_declaration {I} `{FInt I} (v : VarInd) (body : CDeclaration) (arg : CRawValue) : CDeclaration :=
+    match body with
+    | CVal val => CVal (cterm_subst_value v val arg)
+    | CProjN i val => CProjN i (cterm_subst_value v val arg)
+    | COp op v1 v2 => COp op (cterm_subst_value v v1 arg) (cterm_subst_value v v2 arg)
+    | CUnpack x => CUnpack (cterm_subst_raw_value v x arg)
+    end.
+
+  Fixpoint cterm_subst_term {I} `{FInt I} (v : VarInd) (body : CTerm) (arg : CRawValue) : CTerm :=
+    match body with
+    | CLet dec e => (* Need to lift here *)
+      CLet (cterm_subst_declaration v dec arg) (cterm_subst_term (v+1) e arg)
+    | CApp f τs es =>
+      CApp (cterm_subst_value v f arg) τs (map (fun e => cterm_subst_value v e arg) es)
+    | CIf0 c e1 e2 =>
+      CIf0 (cterm_subst_value v c arg)
+           (cterm_subst_term v e1 arg)
+           (cterm_subst_term v e2 arg)
+    | CHalt x τ =>
+      CHalt (cterm_subst_value v x arg) τ
     end.
 
   Lemma type_lift_type_size:

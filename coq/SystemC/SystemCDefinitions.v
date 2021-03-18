@@ -69,7 +69,7 @@ Inductive CTerm {I} `{FInt I} : Type :=
 .
 
 Inductive CHeapValue {I} `{FInt I} : Type :=
-| Code : CType -> N -> list CType -> CTerm -> CHeapValue
+| CCode : CType -> N -> list CType -> CTerm -> CHeapValue
 .
 
 Inductive CProgram {I} `{FInt I} : Type :=
