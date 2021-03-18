@@ -1,6 +1,7 @@
 From Cofq.SystemC Require Import
      SystemCDefinitions
-     SystemCShow. (* Need show for errors in evaluation *)
+     SystemCShow (* Need show for errors in evaluation *)
+     SystemCUtils.
 
 From Cofq.Utils Require Import Utils.
 From Cofq.BaseExpressions Require Import Integers.
@@ -8,6 +9,7 @@ From Cofq.Show Require Import ShowUtils.
 
 From Coq Require Import
      List
+     Lia
      ZArith.
 
 From ExtLib Require Import
@@ -99,7 +101,6 @@ Section Substitution.
      substitute values and types into terms.
    *)
 
-
   Fixpoint cterm_subst_raw_value {I} `{FInt I} (v : VarInd) (body arg : CRawValue) : CRawValue :=
     match body with
     | CVar x =>
@@ -138,46 +139,46 @@ Section Substitution.
       CHalt (cterm_subst_value v x arg) τ
     end.
 
-  Lemma type_lift_type_size:
-    forall τ n,
-      type_size (type_lift n τ) = type_size τ.
-  Proof.
-    induction τ; intros sz; cbn;
-      repeat match goal with
-               H: _ |- _ =>
-               rewrite H
-             end; eauto.
-
-    destruct (x <? sz)%N; auto.
-
-    rewrite map_map.
-    erewrite map_ext_in; eauto.
-  Qed.
-
-
   Obligation Tactic := try Tactics.program_simpl; try solve [cbn; try lia | repeat split; try solve [intros; discriminate]].
-  Program Fixpoint type_subst_in_type (v : TypeInd) (τ : FType) (arg : FType) {measure (type_size τ)} : FType :=
+  Program Fixpoint type_subst_in_type (v : TypeInd) (τ : CType) (arg : CType) {measure (ctype_size τ)} : CType :=
     match τ with
-    | TVar x =>
+    | CTVar x =>
       if N.eqb x v
       then arg
       else if N.ltb v x
-           then TVar (x-1)
-           else TVar x
-    | Arrow τ1 τ2 => Arrow (type_subst_in_type v τ1 arg) (type_subst_in_type v τ2 arg)
-    | Prod τs =>
-      Prod (map_In τs (fun τ HIn => type_subst_in_type v τ arg))
-    | TForall τ' => TForall (type_subst_in_type (v+1) τ' (type_lift 0 arg))
-    | IntType => IntType
+           then CTVar (x-1)
+           else CTVar x
+    | CProd τs =>
+      CProd (map_In τs (fun τ HIn => type_subst_in_type v τ arg))
+    | CTForall n τs => CTForall n (map (fun τ => type_subst_in_type (v+n) τ (ctype_lift 1 0 arg)) τs)
+    | CTExists τ => CTExists (type_subst_in_type (v+1) τ (ctype_lift 1 0 arg))
+    | CIntType => CIntType
     end.
   Next Obligation.
     cbn.
-    pose proof (list_sum_map type_size τ τs HIn).
+    pose proof (list_sum_map ctype_size τ τs HIn).
     lia.
   Qed.
 
-  Fixpoint type_subst {I} `{FInt I} (v : TypeInd) (e : Term) (arg_type : FType) : Term
+  Definition ctype_subst_declaration {I} `{FInt I} (v : TypeInd) (e : CDeclaration) (arg_type : CType) : CDeclaration
     := match e with
+       | CVal x => 
+       | CProjN x x0 => _
+       | COp x x0 x1 => _
+       | CUnpack x => _
+       end
+  
+  Fixpoint ctype_subst_term {I} `{FInt I} (v : TypeInd) (e : CTerm) (arg_type : CType) : CTerm
+    := match e with
+       | CLet dec e => CLet (ctype_subst
+       | CApp x x0 x1 => _
+       | CIf0 x x0 x1 => _
+       | CHalt x x0 => _
+       end
+
+
+
+      match e with
        | TAbs e => TAbs (type_subst (v+1) e (type_lift 0 arg_type))
        | TApp e τ => TApp (type_subst v e arg_type) (type_subst_in_type v τ arg_type)
        | Fix fτ τ body => Fix (type_subst_in_type v fτ arg_type) (type_subst_in_type v τ arg_type) (type_subst v body arg_type)

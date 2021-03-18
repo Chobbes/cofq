@@ -2,7 +2,7 @@ From Coq Require Import
      ZArith
      List.
 
-From Cofq.BaseExpressions Require Import
+From Cofq.BaseExpressions Require Export
      Integers
      PrimOps.
 
