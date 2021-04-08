@@ -217,9 +217,11 @@ End Substitution.
 
 (** Denotation of SystemC in terms of itrees. *) 
 Section Denotation.
+Set Implicit Arguments.
+Set Contextual Implicit.
   Definition Failure := exceptE string.
 
-  Definition crv_to_v {I} `{FInt I} (val : CValue) : CRawValue
+  Definition cv_to_rv {I} `{FInt I} (val : CValue) : CRawValue
     := match val with
        | CAnnotated rv τ => rv
        end.
@@ -228,19 +230,19 @@ Section Denotation.
   Definition ceval_declaration {I} `{FInt I} `{Show I} (dec : CDeclaration) : itree Failure ((CType * CRawValue) + CRawValue)
     := match dec with
        | CVal x =>
-         ret (inr (crv_to_v x))
+         ret (inr (cv_to_rv x))
        | CProjN i v =>
-         match crv_to_v v with
+         match cv_to_rv v with
          | CTuple vs =>
            match nth_error vs (N.to_nat i) with
-           | Some e => ret (inr (crv_to_v e))
+           | Some e => ret (inr (cv_to_rv e))
            | None => throw ("Tuple projection out of bounds: " ++ show dec)
            end
          | _ =>
            throw ("Ill-typed projection: " ++ show dec)
          end
        | COp op e1 e2 =>
-         match crv_to_v e1, crv_to_v e2 with
+         match cv_to_rv e1, cv_to_rv e2 with
          | CNum x, CNum y =>
            ret (inr (CNum (eval_op op x y)))
          | _, _ =>
@@ -257,16 +259,43 @@ Section Denotation.
   Variant CodeE : Type -> Type :=
   | CodeLookup  (id: VarInd): CodeE CHeapValue.
 
-  Notation term_E := (callE CTerm CRawValue +' (CodeE +' Failure)).
-  
+  Definition term_E {I} `{FInt I} := callE CTerm CRawValue +' (CodeE +' Failure).
+
   Definition fail_to_term_E {I} `{FInt I} : Failure ~> term_E :=
     fun T f => inr1 (inr1 f).
+
+  Set Printing Implicit.
+  Print fail_to_term_E.
 
   Definition ceval_declaration' {I} `{FInt I} `{Show I} (dec : CDeclaration) : itree term_E ((CType * CRawValue) + CRawValue) :=
     translate fail_to_term_E (ceval_declaration dec).
 
-  Definition ceval_term {I} `{FInt I} `{Show I} (e : CTerm) : itree term_E CRawValue
+  Definition apply_args {I} `{FInt I} (e : CTerm) (args : list CValue) : CTerm
+    := fold_left (fun body '(i, arg) => cterm_subst_term i body (cv_to_rv arg)) (addIndices' 1 args) e.
+
+  Definition eval_app {I} `{FInt I} (e : CTerm) (x : VarInd) (args : list CValue) : itree term_E CRawValue
+    := let body := cterm_subst_term 0 e (CVar x)
+       in call (apply_args body args).
+
+  Definition eval_app_type {I} `{FInt I} (e : CTerm) (x : VarInd) (τ : CType) (args : list CValue) : itree term_E CRawValue
+    := let body := cterm_subst_term 0 (ctype_subst_term 0 e τ) (CVar x)
+       in call (apply_args body args).
+
+  Definition raise {E} {A} `{Failure -< E} (msg : string) : itree E A :=
+    v <- trigger (Throw msg);; match v: void with end.
+
+  Definition blah {I} `{FInt I} : itree (callE CTerm CRawValue +' (CodeE +' Failure)) CRawValue
+    := raise "blah".
+
+  Definition blah_E := Failure +' exceptE string.
+  Definition blah' {I} `{FInt I} : itree blah_E CRawValue
+    := raise "blah".
+
+
+  Definition ceval_term {I} `{FI: FInt I} `{Show I} (e : CTerm) : itree (@term_E I FI) CRawValue
     := match e with
+       | CHalt v τ =>
+         ret (cv_to_rv v)
        | CLet dec body =>
          d <- ceval_declaration' dec;;
          match d with
@@ -276,19 +305,37 @@ Section Denotation.
            call (cterm_subst_term 0 body dv)
          end
        | CApp f args =>
-         match crv_to_v f with
+         match cv_to_rv f with
          | CVar x =>
            hv <- trigger (CodeLookup x);;
            match hv with
-           | CCode τ n x1 x2 =>
-             
+           | CCode τ n arg_τs body =>
+             (* TODO: should we do something about a lack of type applications? *)
+             if Nat.eqb (length args) (length arg_τs)
+             then raise "wa" (* @eval_app I _ body x args *)
+             else raise ("Not enough arguments to application: " ++ show e)
            end
-         | CTApp rv τ =>
-           _
+         | _ => raise "unimplemented"
+         end
+       | _ => raise "unimplemented"
+       end.
+
+         | CTApp (CVar x) τ =>
+           (* TODO: Not sure what happens if  nested CTApp constructors... *)
+           hv <- trigger (CodeLookup x);;
+           match hv with
+           | CCode τ n arg_τs body =>
+             (* TODO: should we do something about a lack of type applications? *)
+             if Nat.eqb (length args) (length arg_τs)
+             then
+               let body' := cterm_subst_term 0 (ctype_subst_term 0 body τ) (CVar x)
+               in call (fold_left (fun body '(i, arg) => cterm_subst_term i body (cv_to_rv arg)) (addIndices' 1 args) body')
+             else throw ("Not enough arguments to application: " ++ show )e
+           end
          | _ => throw ("Ill-formed application: " ++ show e)
          end
        | CIf0 c e1 e2 =>
-         
+         _
        | CHalt v τ =>
          _
        end.
