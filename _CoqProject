@@ -10,6 +10,13 @@ coq/SystemF/SystemFShow.v
 coq/SystemF/SystemFSemantics.v
 coq/SystemF/SystemFTyping.v
 coq/SystemF/SystemFUtils.v
+coq/SystemK/SystemK.v
+coq/SystemK/SystemKTest.v
+coq/SystemK/SystemKDefinitions.v
+coq/SystemK/SystemKShow.v
+coq/SystemK/SystemKSemantics.v
+coq/SystemK/SystemKTyping.v
+coq/SystemK/SystemKUtils.v
 coq/BaseExpressions/PrimOps.v
 coq/BaseExpressions/Integers.v
 coq/BaseExpressions/IntegersShow.v
@@ -17,4 +24,3 @@ coq/BaseExpressions/BaseExpressionTests.v
 coq/Show/ShowUtils.v
 coq/Test/TestUtils.v
 coq/Utils/Utils.v
-coq/SystemK/SystemK.v
