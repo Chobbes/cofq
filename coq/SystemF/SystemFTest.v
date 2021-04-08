@@ -20,6 +20,9 @@ From Cofq.SystemF Require Import
      SystemFUtils
      SystemFShow.
 
+From Cofq.Utils Require Import
+     Utils.
+
 From Cofq.BaseExpressions Require Import
      IntegersShow
      BaseExpressionTests.

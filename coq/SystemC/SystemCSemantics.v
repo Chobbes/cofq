@@ -1,13 +1,16 @@
 From Cofq.SystemC Require Import
      SystemCDefinitions
-     SystemCShow. (* Need show for errors in evaluation *)
+     SystemCShow (* Need show for errors in evaluation *)
+     SystemCUtils.
 
 From Cofq.Utils Require Import Utils.
 From Cofq.BaseExpressions Require Import Integers.
 From Cofq.Show Require Import ShowUtils.
 
 From Coq Require Import
+     String
      List
+     Lia
      ZArith.
 
 From ExtLib Require Import
@@ -37,6 +40,7 @@ Section Substitution.
       else CVar (x + lift_amt)
     | CTuple es => CTuple (map (cterm_lift_value lift_amt n) es)
     | CPack t1 rv t2 => CPack t1 (cterm_lift_raw_value lift_amt n rv) t2
+    | CTApp rv τ => CTApp (cterm_lift_raw_value lift_amt n rv) τ
     end
   with
   cterm_lift_value {I} `{FInt I} (lift_amt : N) (n : N) (v : CValue) : CValue :=
@@ -57,14 +61,14 @@ Section Substitution.
     match term with
     (* Let should always bind a single term variable *)
     | CLet d e => CLet (cterm_lift_declaration lift_amt n d) (cterm_lift_term lift_amt (n+1) e)
-    | CApp v targs args => CApp (cterm_lift_value lift_amt n v) targs (map (cterm_lift_value lift_amt n) args)
+    | CApp v args => CApp (cterm_lift_value lift_amt n v) (map (cterm_lift_value lift_amt n) args)
     | CIf0 c e1 e2 => CIf0 (cterm_lift_value lift_amt n c) (cterm_lift_term lift_amt n e2) (cterm_lift_term lift_amt n e2)
     | CHalt v t => CHalt (cterm_lift_value lift_amt n v) t
     end.
 
   Definition cterm_lift_heap_value {I} `{FInt I} (lift_amt : N) (n : N) (hv : CHeapValue) : CHeapValue :=
     match hv with
-    | Code t n ts body => Code t n ts (cterm_lift_term lift_amt n body)
+    | CCode t n ts body => CCode t n ts (cterm_lift_term lift_amt n body)
     end.
 
   (* Each heap value in the list is bound to a type variable in order *)
@@ -84,166 +88,236 @@ Section Substitution.
     | CIntType => τ
     end.
 
-  Fixpoint term_subst {I} `{FInt I} (v : VarInd) (body arg : Term) : Term :=
+  (** * Actual substitution *)
+
+  (* Applications must be a code block applied using the CApp
+     constructor to some CType and CValue arguments.
+
+     CApp : CValue -> list CType -> list CValue -> CTerm
+
+     Which means that the code block has to be referenced through an
+     annotated CVar, as there's no other way to reference code in a
+     value.
+
+     The body of CCode is a term, so we'll have to be able to
+     substitute values and types into terms.
+   *)
+
+  Fixpoint cterm_subst_raw_value {I} `{FInt I} (v : VarInd) (body arg : CRawValue) : CRawValue :=
     match body with
-    | Var x =>
+    | CVar x =>
       if N.eqb x v
       then arg
-      else Var x
-    | Fix fix_type arg_type fbody =>
-      Fix fix_type arg_type (term_subst (v + 2) fbody (term_lift 0 arg))
-    | Ann e t => Ann (term_subst v e arg) t
-    | App e1 e2 => App (term_subst v e1 arg) (term_subst v e2 arg)
-    | TAbs e => TAbs (term_subst v e arg)
-    | TApp e t => TApp (term_subst v e arg) t
-    | Tuple es => Tuple (map (fun e => term_subst v e arg) es)
-    | ProjN i e => ProjN i (term_subst v e arg)
-    | Num x => Num x
-    | If0 c e1 e2 => If0 (term_subst v c arg) (term_subst v e1 arg) (term_subst v e2 arg)
-    | Op op e1 e2 => Op op (term_subst v e1 arg) (term_subst v e2 arg)
+      else CVar x
+    | CNum x => CNum x
+    | CTuple es => CTuple (map (fun e => cterm_subst_value v e arg) es)
+    | CPack t1 rv t2 => CPack t1 (cterm_subst_raw_value v rv arg) t2
+    | CTApp rv τ => CTApp (cterm_subst_raw_value v rv arg) τ
+    end
+  with
+  cterm_subst_value {I} `{FInt I} (v : VarInd) (body : CValue) (arg : CRawValue) : CValue :=
+    match body with
+    | CAnnotated rv t => CAnnotated (cterm_subst_raw_value v rv arg) t
     end.
 
-  Lemma type_lift_type_size:
-    forall τ n,
-      type_size (type_lift n τ) = type_size τ.
-  Proof.
-    induction τ; intros sz; cbn;
-      repeat match goal with
-               H: _ |- _ =>
-               rewrite H
-             end; eauto.
+  Definition cterm_subst_declaration {I} `{FInt I} (v : VarInd) (body : CDeclaration) (arg : CRawValue) : CDeclaration :=
+    match body with
+    | CVal val => CVal (cterm_subst_value v val arg)
+    | CProjN i val => CProjN i (cterm_subst_value v val arg)
+    | COp op v1 v2 => COp op (cterm_subst_value v v1 arg) (cterm_subst_value v v2 arg)
+    | CUnpack x => CUnpack (cterm_subst_raw_value v x arg)
+    end.
 
-    destruct (x <? sz)%N; auto.
-
-    rewrite map_map.
-    erewrite map_ext_in; eauto.
-  Qed.
-
+  Fixpoint cterm_subst_term {I} `{FInt I} (v : VarInd) (body : CTerm) (arg : CRawValue) : CTerm :=
+    match body with
+    | CLet dec e => (* Need to lift here *)
+      CLet (cterm_subst_declaration v dec arg) (cterm_subst_term (v+1) e arg)
+    | CApp f es =>
+      CApp (cterm_subst_value v f arg) (map (fun e => cterm_subst_value v e arg) es)
+    | CIf0 c e1 e2 =>
+      CIf0 (cterm_subst_value v c arg)
+           (cterm_subst_term v e1 arg)
+           (cterm_subst_term v e2 arg)
+    | CHalt x τ =>
+      CHalt (cterm_subst_value v x arg) τ
+    end.
 
   Obligation Tactic := try Tactics.program_simpl; try solve [cbn; try lia | repeat split; try solve [intros; discriminate]].
-  Program Fixpoint type_subst_in_type (v : TypeInd) (τ : FType) (arg : FType) {measure (type_size τ)} : FType :=
+  Program Fixpoint ctype_subst_in_type (v : TypeInd) (τ : CType) (arg : CType) {measure (ctype_size τ)} : CType :=
     match τ with
-    | TVar x =>
+    | CTVar x =>
       if N.eqb x v
       then arg
       else if N.ltb v x
-           then TVar (x-1)
-           else TVar x
-    | Arrow τ1 τ2 => Arrow (type_subst_in_type v τ1 arg) (type_subst_in_type v τ2 arg)
-    | Prod τs =>
-      Prod (map_In τs (fun τ HIn => type_subst_in_type v τ arg))
-    | TForall τ' => TForall (type_subst_in_type (v+1) τ' (type_lift 0 arg))
-    | IntType => IntType
+           then CTVar (x-1)
+           else CTVar x
+    | CProd τs =>
+      CProd (map_In τs (fun τ HIn => ctype_subst_in_type v τ arg))
+    | CTForall n τs => CTForall n (map_In τs (fun τ HIn => ctype_subst_in_type (v+n) τ (ctype_lift 1 0 arg)))
+    | CTExists τ => CTExists (ctype_subst_in_type (v+1) τ (ctype_lift 1 0 arg))
+    | CIntType => CIntType
     end.
   Next Obligation.
     cbn.
-    pose proof (list_sum_map type_size τ τs HIn).
+    pose proof (list_sum_map ctype_size τ τs HIn).
+    lia.
+  Qed.
+  Next Obligation.
+    cbn.
+    pose proof (list_sum_map ctype_size τ τs HIn).
     lia.
   Qed.
 
-  Fixpoint type_subst {I} `{FInt I} (v : TypeInd) (e : Term) (arg_type : FType) : Term
-    := match e with
-       | TAbs e => TAbs (type_subst (v+1) e (type_lift 0 arg_type))
-       | TApp e τ => TApp (type_subst v e arg_type) (type_subst_in_type v τ arg_type)
-       | Fix fτ τ body => Fix (type_subst_in_type v fτ arg_type) (type_subst_in_type v τ arg_type) (type_subst v body arg_type)
-       | App e1 e2 => App (type_subst v e1 arg_type) (type_subst v e2 arg_type)
-       | If0 c e1 e2 => If0 (type_subst v c arg_type) (type_subst v e1 arg_type) (type_subst v e2 arg_type)
-       | Op op e1 e2 => Op op (type_subst v e1 arg_type) (type_subst v e2 arg_type)
-       | Tuple es => Tuple (map (fun e => type_subst v e arg_type) es)
-       | ProjN i e => ProjN i (type_subst v e arg_type)
-       | Ann e τ => Ann (type_subst v e arg_type) (type_subst_in_type v τ arg_type)
-       | Num x => Num x
-       | Var x => Var x
+  Fixpoint ctype_subst_raw_value {I} `{FInt I} (v : TypeInd) (rv : CRawValue) (arg_type : CType) : CRawValue
+    := match rv with
+       | CTuple es =>
+         CTuple (map (fun e => ctype_subst_value v e arg_type) es)
+       | CPack τ1 rv τ2 =>
+         CPack (ctype_subst_in_type v τ1 arg_type) rv (ctype_subst_in_type v τ2 arg_type)
+       | CTApp x τ =>
+         CTApp x (ctype_subst_in_type v τ arg_type)
+       | CNum x => rv
+       | CVar x => rv
+       end
+  with
+  ctype_subst_value {I} `{FInt I} (v : TypeInd) (val : CValue) (arg_type : CType) : CValue
+    := match val with
+       | CAnnotated rv τ => CAnnotated rv (ctype_subst_in_type v τ arg_type)
        end.
 
-  Definition app_fix {I} `{FInt I} (fix_type arg_type : FType) (body : Term) (arg : Term) : Term :=
-    term_subst 1 (term_subst 0 body (Fix fix_type arg_type body)) arg.
+  Definition ctype_subst_declaration {I} `{FInt I} (v : TypeInd) (e : CDeclaration) (arg_type : CType) : CDeclaration
+    := match e with
+       | CVal x =>
+         CVal (ctype_subst_value v x arg_type)
+       | CProjN i e =>
+         CProjN i (ctype_subst_value v e arg_type)
+       | COp op e1 e2 =>
+         COp op (ctype_subst_value v e1 arg_type) (ctype_subst_value v e2 arg_type)
+       | CUnpack x =>
+         CUnpack (ctype_subst_raw_value v x arg_type)
+       end.
+  
+  Fixpoint ctype_subst_term {I} `{FInt I} (v : TypeInd) (e : CTerm) (arg_type : CType) : CTerm
+    := match e with
+         (* Unpack binds a type variable and a term variable *)
+       | CLet (CUnpack x) e =>
+         CLet (ctype_subst_declaration v (CUnpack x) arg_type) (ctype_subst_term (v+1) e arg_type)
+       | CLet dec e =>
+         CLet (ctype_subst_declaration v dec arg_type) (ctype_subst_term v e arg_type)
+       | CApp f vs =>
+         CApp (ctype_subst_value v f arg_type) (map (fun e => ctype_subst_value v e arg_type) vs)
+       | CIf0 c e1 e2 =>
+         CIf0 (ctype_subst_value v c arg_type)
+              (ctype_subst_term v e1 arg_type)
+              (ctype_subst_term v e2 arg_type)
+       | CHalt x τ =>
+         CHalt (ctype_subst_value v x arg_type) (ctype_subst_in_type v τ arg_type)
+       end.
 End Substitution.
 
-
-(** Single-step semantics for SystemF, useful for testing. *)
-Section SingleStep.
-  Obligation Tactic := try Tactics.program_simpl; try solve [cbn; try lia | repeat split; try solve [intros; discriminate]].
-  Program Fixpoint step {I} `{FInt I} (e : Term) {measure (term_size e)} : (unit + Term) :=
-    match e with
-    | Ann e t => step e
-    | Fix fix_type arg_type body => inl tt
-    | App (Fix fix_type arg_type body) arg =>
-      inr (app_fix fix_type arg_type body arg)
-    | App e1 e2 =>
-      e1v <- step e1;;
-      inr (App e1v e2)
-    | Op op (Num xn) (Num yn) =>
-      inr (Num (eval_op op xn yn))
-    | Op op (Num xn) y =>
-      yv <- step y ;;
-      inr (Op op (Num xn) yv)
-    | Op op x y =>
-      xv <- step x ;;
-      inr (Op op xv y)
-    | TApp (TAbs e) arg_type =>
-      inr (type_subst 0 e arg_type)
-    | TApp e t =>
-      e' <- step e;;
-      inr (TApp e' t)
-    | ProjN i (Tuple es) =>
-      match nth_error es (N.to_nat i) with
-      | Some e => step e
-      | None => inl tt
-      end
-    | ProjN i e =>
-      ev <- step e;;
-      inr (ProjN i ev)
-    | If0 (Num x) e1 e2 =>
-      if eq x zero
-      then inr e1
-      else inr e2
-    | If0 c e1 e2 =>
-      cv <- step c;;
-      inr (If0 cv e1 e2)
-    | _ => inl tt
-    end.
-  Next Obligation.
-    cbn.
-    symmetry in Heq_anonymous.
-    apply nth_error_In in Heq_anonymous.
-    pose proof (list_sum_map term_size e es Heq_anonymous).
-    lia.
-  Qed.
-
-  Definition step' {I} `{FInt I} (v : unit + Term) : (unit + Term)
-    := match v with
-       | inl tt => inl tt
-       | inr t => step t
-       end.
-
-  Fixpoint multistep {I} `{FInt I} (n : nat) (v : Term) : Term
-    := match n with
-       | O => v
-       | S n =>
-         match step v with
-         | inl tt => v
-         | inr t => multistep n t
-         end
-       end.
-
-  (* Returns a term only if it's fully evaluated *)
-  Fixpoint multistep' {I} `{FInt I} (n : nat) (v : Term) : option Term
-    := match n with
-       | O => None
-       | S n =>
-         match step v with
-         | inl tt => Some v
-         | inr t => multistep' n t
-         end
-       end.
-End SingleStep.
-
-(** Denotation of SystemF in terms of itrees. *) 
+(** Denotation of SystemC in terms of itrees. *) 
 Section Denotation.
   Definition Failure := exceptE string.
 
-  Definition eval_body {I} `{FInt I} `{Show I} (e : Term) : itree (callE Term Term +' Failure) Term :=
+  Definition crv_to_v {I} `{FInt I} (val : CValue) : CRawValue
+    := match val with
+       | CAnnotated rv τ => rv
+       end.
+
+  Open Scope string_scope.
+  Definition ceval_declaration {I} `{FInt I} `{Show I} (dec : CDeclaration) : itree Failure ((CType * CRawValue) + CRawValue)
+    := match dec with
+       | CVal x =>
+         ret (inr (crv_to_v x))
+       | CProjN i v =>
+         match crv_to_v v with
+         | CTuple vs =>
+           match nth_error vs (N.to_nat i) with
+           | Some e => ret (inr (crv_to_v e))
+           | None => throw ("Tuple projection out of bounds: " ++ show dec)
+           end
+         | _ =>
+           throw ("Ill-typed projection: " ++ show dec)
+         end
+       | COp op e1 e2 =>
+         match crv_to_v e1, crv_to_v e2 with
+         | CNum x, CNum y =>
+           ret (inr (CNum (eval_op op x y)))
+         | _, _ =>
+           throw ("Ill-typed operation: " ++ show dec)
+         end
+       | CUnpack x =>
+         (* TODO: not sure about variables... *)
+         match x with
+         | CPack τ1 e τ2 => ret (inl (τ1, e)) 
+         | _ => throw ("Ill-typed unpack: " ++ show dec)
+         end
+       end.
+
+  Variant CodeE : Type -> Type :=
+  | CodeLookup  (id: VarInd): CodeE CHeapValue.
+
+  Notation term_E := (callE CTerm CRawValue +' (CodeE +' Failure)).
+  
+  Definition fail_to_term_E {I} `{FInt I} : Failure ~> term_E :=
+    fun T f => inr1 (inr1 f).
+
+  Definition ceval_declaration' {I} `{FInt I} `{Show I} (dec : CDeclaration) : itree term_E ((CType * CRawValue) + CRawValue) :=
+    translate fail_to_term_E (ceval_declaration dec).
+
+  Definition ceval_term {I} `{FInt I} `{Show I} (e : CTerm) : itree term_E CRawValue
+    := match e with
+       | CLet dec body =>
+         d <- ceval_declaration' dec;;
+         match d with
+         | inl (τ, dv) =>
+           call (ctype_subst_term 0 (cterm_subst_term 0 body dv) τ)
+         | inr dv =>
+           call (cterm_subst_term 0 body dv)
+         end
+       | CApp f args =>
+         match crv_to_v f with
+         | CVar x =>
+           hv <- trigger (CodeLookup x);;
+           match hv with
+           | CCode τ n x1 x2 =>
+             
+           end
+         | CTApp rv τ =>
+           _
+         | _ => throw ("Ill-formed application: " ++ show e)
+         end
+       | CIf0 c e1 e2 =>
+         
+       | CHalt v τ =>
+         _
+       end.
+
+
+Inductive CDeclaration {I} `{FInt I} : Type :=
+| CVal          : CValue -> CDeclaration
+| CProjN        : N -> CValue -> CDeclaration
+| COp           : PrimOp -> CValue -> CValue -> CDeclaration
+| CUnpack       : CRawValue -> CDeclaration
+.
+
+Inductive CTerm {I} `{FInt I} : Type :=
+| CLet          : CDeclaration -> CTerm -> CTerm
+| CApp          : CValue -> list CValue -> CTerm
+| CIf0          : CValue -> CTerm -> CTerm -> CTerm
+| CHalt         : CValue -> CType -> CTerm
+.
+
+Inductive CHeapValue {I} `{FInt I} : Type :=
+| CCode : CType -> N -> list CType -> CTerm -> CHeapValue
+.
+
+Inductive CProgram {I} `{FInt I} : Type :=
+| CProg : list CHeapValue -> CProgram
+.
+
+
+  Definition eval_body {I} `{FInt I} `{Show I} (e : CTerm) : itree (callE Term Term +' Failure) Term :=
     match e with
     | Ann e t => call e
     | App e1 e2 =>
