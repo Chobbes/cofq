@@ -256,16 +256,14 @@ Set Contextual Implicit.
          end
        end.
 
-  Variant CodeE : Type -> Type :=
+  Variant CodeE {I} `{FInt I} : Type -> Type :=
   | CodeLookup  (id: VarInd): CodeE CHeapValue.
 
-  Definition term_E {I} `{FInt I} := callE CTerm CRawValue +' (CodeE +' Failure).
+  Notation term_E := (callE CTerm CRawValue +' (CodeE +' Failure)).
+  Notation term_E' I FI := (callE (@CTerm I FI) (@CRawValue I FI) +' ((@CodeE I FI) +' Failure)).
 
   Definition fail_to_term_E {I} `{FInt I} : Failure ~> term_E :=
     fun T f => inr1 (inr1 f).
-
-  Set Printing Implicit.
-  Print fail_to_term_E.
 
   Definition ceval_declaration' {I} `{FInt I} `{Show I} (dec : CDeclaration) : itree term_E ((CType * CRawValue) + CRawValue) :=
     translate fail_to_term_E (ceval_declaration dec).
@@ -284,15 +282,7 @@ Set Contextual Implicit.
   Definition raise {E} {A} `{Failure -< E} (msg : string) : itree E A :=
     v <- trigger (Throw msg);; match v: void with end.
 
-  Definition blah {I} `{FInt I} : itree (callE CTerm CRawValue +' (CodeE +' Failure)) CRawValue
-    := raise "blah".
-
-  Definition blah_E := Failure +' exceptE string.
-  Definition blah' {I} `{FInt I} : itree blah_E CRawValue
-    := raise "blah".
-
-
-  Definition ceval_term {I} `{FI: FInt I} `{Show I} (e : CTerm) : itree (@term_E I FI) CRawValue
+  Definition ceval_term {I} `{FI: FInt I} `{Show I} (e : CTerm) : itree term_E CRawValue
     := match e with
        | CHalt v τ =>
          ret (cv_to_rv v)
@@ -312,7 +302,7 @@ Set Contextual Implicit.
            | CCode τ n arg_τs body =>
              (* TODO: should we do something about a lack of type applications? *)
              if Nat.eqb (length args) (length arg_τs)
-             then raise "wa" (* @eval_app I _ body x args *)
+             then eval_app body x args (* (@eval_app I FI body x args : itree term_E CRawValue) *)
              else raise ("Not enough arguments to application: " ++ show e)
            end
          | _ => raise "unimplemented"
