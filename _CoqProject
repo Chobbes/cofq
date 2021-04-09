@@ -17,6 +17,10 @@ coq/SystemK/SystemKShow.v
 coq/SystemK/SystemKSemantics.v
 coq/SystemK/SystemKTyping.v
 coq/SystemK/SystemKUtils.v
+coq/SystemK/SystemCDefinitions.v
+coq/SystemK/SystemCShow.v
+coq/SystemK/SystemCSemantics.v
+coq/SystemK/SystemCUtils.v
 coq/BaseExpressions/PrimOps.v
 coq/BaseExpressions/Integers.v
 coq/BaseExpressions/IntegersShow.v
