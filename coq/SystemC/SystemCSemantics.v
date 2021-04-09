@@ -23,9 +23,14 @@ Local Open Scope monad_scope.
 
 From ITree Require Import
      Basics
+     Basics.Basics
      ITree
      Interp.Recursion
-     Events.Exception.
+     Events.Exception
+     Events.StateFacts
+     Events.State.
+
+Import Basics.Basics.Monads.
 
 From Vellvm.Utils Require Import Util.
 
@@ -72,10 +77,10 @@ Section Substitution.
     end.
 
   (* Each heap value in the list is bound to a type variable in order *)
-  Definition CProgram {I} `{FInt I} (lift_amt : N) (n : N) (prog : CProgram) : CProgram :=
+  Definition cterm_lift_program {I} `{FInt I} (lift_amt : N) (n : N) (prog : CProgram) : CProgram :=
     match prog with
-    | CProg hvs =>
-      CProg (map (fun '(i, hv) => cterm_lift_heap_value lift_amt (n+i) hv) (addIndices hvs))
+    | CProg hvs body =>
+      CProg (map (fun '(i, hv) => cterm_lift_heap_value lift_amt (n+i) hv) (addIndices hvs)) (cterm_lift_term lift_amt (n + N.of_nat (length hvs)) body)
     end.
 
   Fixpoint ctype_lift (lift_amt : N) (n : N) (τ : CType) : CType :=
@@ -259,30 +264,30 @@ Set Contextual Implicit.
   Variant CodeE {I} `{FInt I} : Type -> Type :=
   | CodeLookup  (id: VarInd): CodeE CHeapValue.
 
-  Notation term_E := (callE CTerm CRawValue +' (CodeE +' Failure)).
-  Notation term_E' I FI := (callE (@CTerm I FI) (@CRawValue I FI) +' ((@CodeE I FI) +' Failure)).
+  Notation TermE := (callE CTerm CRawValue +' (CodeE +' Failure)).
+  Notation ProgE := Failure.
 
-  Definition fail_to_term_E {I} `{FInt I} : Failure ~> term_E :=
+  Definition fail_to_TermE {I} `{FInt I} : Failure ~> TermE :=
     fun T f => inr1 (inr1 f).
 
-  Definition ceval_declaration' {I} `{FInt I} `{Show I} (dec : CDeclaration) : itree term_E ((CType * CRawValue) + CRawValue) :=
-    translate fail_to_term_E (ceval_declaration dec).
+  Definition ceval_declaration' {I} `{FInt I} `{Show I} (dec : CDeclaration) : itree TermE ((CType * CRawValue) + CRawValue) :=
+    translate fail_to_TermE (ceval_declaration dec).
 
   Definition apply_args {I} `{FInt I} (e : CTerm) (args : list CValue) : CTerm
     := fold_left (fun body '(i, arg) => cterm_subst_term i body (cv_to_rv arg)) (addIndices' 1 args) e.
 
-  Definition eval_app {I} `{FInt I} (e : CTerm) (x : VarInd) (args : list CValue) : itree term_E CRawValue
+  Definition eval_app {I} `{FInt I} (e : CTerm) (x : VarInd) (args : list CValue) : itree TermE CRawValue
     := let body := cterm_subst_term 0 e (CVar x)
        in call (apply_args body args).
 
-  Definition eval_app_type {I} `{FInt I} (e : CTerm) (x : VarInd) (τ : CType) (args : list CValue) : itree term_E CRawValue
+  Definition eval_app_type {I} `{FInt I} (e : CTerm) (x : VarInd) (τ : CType) (args : list CValue) : itree TermE CRawValue
     := let body := cterm_subst_term 0 (ctype_subst_term 0 e τ) (CVar x)
        in call (apply_args body args).
 
   Definition raise {E} {A} `{Failure -< E} (msg : string) : itree E A :=
     v <- trigger (Throw msg);; match v: void with end.
 
-  Definition ceval_term {I} `{FI: FInt I} `{Show I} (e : CTerm) : itree term_E CRawValue
+  Definition ceval_term {I} `{FI: FInt I} `{Show I} (e : CTerm) : itree TermE CRawValue
     := match e with
        | CHalt v τ =>
          ret (cv_to_rv v)
@@ -302,112 +307,73 @@ Set Contextual Implicit.
            | CCode τ n arg_τs body =>
              (* TODO: should we do something about a lack of type applications? *)
              if Nat.eqb (length args) (length arg_τs)
-             then eval_app body x args (* (@eval_app I FI body x args : itree term_E CRawValue) *)
+             then eval_app body x args
              else raise ("Not enough arguments to application: " ++ show e)
            end
          | _ => raise "unimplemented"
          end
-       | _ => raise "unimplemented"
-       end.
-
-         | CTApp (CVar x) τ =>
-           (* TODO: Not sure what happens if  nested CTApp constructors... *)
-           hv <- trigger (CodeLookup x);;
-           match hv with
-           | CCode τ n arg_τs body =>
-             (* TODO: should we do something about a lack of type applications? *)
-             if Nat.eqb (length args) (length arg_τs)
-             then
-               let body' := cterm_subst_term 0 (ctype_subst_term 0 body τ) (CVar x)
-               in call (fold_left (fun body '(i, arg) => cterm_subst_term i body (cv_to_rv arg)) (addIndices' 1 args) body')
-             else throw ("Not enough arguments to application: " ++ show )e
-           end
-         | _ => throw ("Ill-formed application: " ++ show e)
-         end
        | CIf0 c e1 e2 =>
-         _
-       | CHalt v τ =>
-         _
+         match cv_to_rv c with
+         | CNum x =>
+           if eq x zero
+           then call e1
+           else call e2
+         | _ =>
+           raise ("Conditional not a number: " ++ show e)
+         end
        end.
 
+  Definition ceval_term_loop {I} `{FI: FInt I} `{Show I} (e : CTerm) : itree (CodeE +' Failure) CRawValue
+    := rec ceval_term e.
 
-Inductive CDeclaration {I} `{FInt I} : Type :=
-| CVal          : CValue -> CDeclaration
-| CProjN        : N -> CValue -> CDeclaration
-| COp           : PrimOp -> CValue -> CValue -> CDeclaration
-| CUnpack       : CRawValue -> CDeclaration
-.
-
-Inductive CTerm {I} `{FInt I} : Type :=
-| CLet          : CDeclaration -> CTerm -> CTerm
-| CApp          : CValue -> list CValue -> CTerm
-| CIf0          : CValue -> CTerm -> CTerm -> CTerm
-| CHalt         : CValue -> CType -> CTerm
-.
-
-Inductive CHeapValue {I} `{FInt I} : Type :=
-| CCode : CType -> N -> list CType -> CTerm -> CHeapValue
-.
-
-Inductive CProgram {I} `{FInt I} : Type :=
-| CProg : list CHeapValue -> CProgram
-.
-
-
-  Definition eval_body {I} `{FInt I} `{Show I} (e : CTerm) : itree (callE Term Term +' Failure) Term :=
-    match e with
-    | Ann e t => call e
-    | App e1 e2 =>
-      e1v <- call e1;;
-      e2v <- call e2;;
-      match e1v with
-      | Fix fix_type arg_type body =>
-        call (app_fix fix_type arg_type body e2v)
-      | _ => throw ("ill-typed application: " ++ show e)
-      end
-    | TApp e t =>
-      e' <- call e;;
-      match e' with
-      | TAbs body =>
-        call (type_subst 0 body t)
-      | _ => throw ("ill-typed type application: " ++ show (TApp e' t))
-      end
-    | ProjN i es =>
-      es' <- call es;;
-      match es' with
-      | Tuple xs =>
-        match nth_error xs (N.to_nat i) with
-        | Some e => call e
-        | None => throw ("tuple projection out of bounds: " ++ show e)
+  (* TODO: should we use readerT? *)
+  Definition handle_code {I} `{FInt I} {E} `{Failure -< E} : CodeE ~> stateT (list CHeapValue) (itree E) :=
+    fun _ e s =>
+      match e with
+      | CodeLookup id =>
+        match nth_error s (N.to_nat id) with
+        | Some hv => ret (s, hv)
+        | None => raise ("Could not find heap value: " ++ show id)
         end
-      | _ => throw ("ill-typed tuple projection: " ++ show e)
-      end
-    | If0 c e1 e2 =>
-      cv <- call c;;
-      match cv with
-      | Num x =>
-        if eq x zero
-        then call e1
-        else call e2
-      | _ => throw ("ill-typed if0: " ++ show e)
-      end
-    | Op op e1 e2 =>
-      e1v <- call e1;;
-      e2v <- call e2;;
-      match e1v, e2v with
-      | Num x, Num y =>
-        ret (Num (eval_op op x y))
-      | _, _ => throw ("ill-typed operation: " ++ show e)
-      end
-    | Num x => ret e
-    | TAbs x => ret e
-    | Tuple xs =>
-      xs' <- map_monad call xs;;
-      ret (Tuple xs')
-    | Fix fix_type arg_type body => ret e
-    | Var x => ret e
-    end.
+      end.
 
-  Definition eval {I} `{FInt I} `{Show I} : Term -> itree Failure Term :=
-    rec eval_body.
+  Section Itrees.
+  (* TODO: move to itrees? *)
+  Instance Functor_readerT {m s} {Fm : Functor m} : Functor (readerT s m)
+    := {|
+    fmap _ _ f := fun run s => fmap f (run s)
+      |}.
+
+  Instance Monad_readerT {m s} {Fm : Monad m} : Monad (readerT s m)
+    := {|
+    ret _ a := fun s => ret a
+    ; bind _ _ t k := fun s =>
+                        sa <- t s ;;
+                        k sa s
+      |}.
+  End Itrees.
+
+  Arguments interp_state {E M S FM MM IM} h [T].
+
+  Section PARAMS.
+    Variable (F : Type -> Type).
+    Context `{Failure -< F}.
+    Notation Effin := (CodeE +' F).
+    Notation Effout := (F).
+
+    Definition F_trigger {I} `{FInt I} {M} : forall R, F R -> (stateT M (itree Effout) R) :=
+      fun R e m => r <- trigger e ;; ret (m, r).
+
+    Definition interp_code_h {I} `{FInt I} := case_ handle_code F_trigger.
+    Definition interp_code {I} `{FInt I} :
+      itree Effin ~> stateT (list CHeapValue) (itree Effout) :=
+      interp_state interp_code_h.
+  End PARAMS.
+
+  Definition ceval_program {I} `{FI: FInt I} `{Show I} (p : CProgram) : itree Failure CRawValue
+    := match p with
+       | CProg defs body =>
+         '(_, rv) <- interp_code (ceval_term_loop body) defs;;
+         ret rv
+       end.
 End Denotation.

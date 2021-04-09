@@ -75,5 +75,5 @@ Inductive CHeapValue {I} `{FInt I} : Type :=
 .
 
 Inductive CProgram {I} `{FInt I} : Type :=
-| CProg : list CHeapValue -> CProgram
+| CProg : list CHeapValue -> CTerm -> CProgram
 .
