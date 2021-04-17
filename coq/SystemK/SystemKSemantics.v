@@ -8,7 +8,7 @@ From Cofq.Show Require Import ShowUtils.
 
 From Coq Require Import
      Lia
-     String.
+     List.
 
 From ExtLib Require Import
      Structures.Monads
@@ -27,7 +27,43 @@ From ITree Require Import
 From Vellvm.Utils Require Import Util.
 
 Section Substitution.
+  Definition nat_to_n (n : nat) : N. Admitted.
+
   (* Lift by 2 because fixpoint has a argument in addition to referring to itself *)
+  Fixpoint value_lift {I} `{FInt I} (n : N) (lift_by : N) (value : KValue) : KValue :=
+    match value with
+    | KAnnotated type raw_value => KAnnotated type (raw_value_lift n lift_by raw_value)
+    end
+  with raw_value_lift {I} `{FInt I} (n : N) (lift_by : N) (value : KRawValue) : KRawValue :=
+    match value with
+    | KNum num => KNum num
+    | KVar index =>
+      if N.ltb index n
+      then KVar index
+      else KVar (index + lift_by)
+    | KFix type_param_count value_params body =>
+      KFix type_param_count
+           value_params
+           (term_lift (n + (nat_to_n (length value_params)) + 1) lift_by body)
+    | KTuple values => KTuple (map (value_lift n lift_by) values)
+    end
+    with term_lift {I} `{FInt I} (n : N) (lift_by : N) (term : KTerm) : KTerm :=
+    match term with
+    | KLet declaration body =>
+      KLet (declaration_lift n lift_by declaration) (term_lift (n + 1) lift_by body)
+    | KApp f type_params value_params =>
+      KApp (value_lift n lift_by f) type_params (map (value_lift n lift_by) value_params)
+    | KIf0 value then_term else_term =>
+      KIf0 (value_lift n lift_by value) (term_lift n lift_by then_term) (term_lift n lift_by else_term)
+    | KHalt type value => KHalt type (value_lift n lift_by value)
+    end
+    with declaration_lift {I} `{FInt I} (n : N) (lift_by : N) (declaration : KDeclaration) : KDeclaration :=
+    match declaration with
+    | KVal value => KVal (value_lift n lift_by value)
+    | KProjN i value => KProjN i (value_lift n lift_by value)
+    | KOp op value_a value_b => KOp op (value_lift n lift_by value_a) (value_lift n lift_by value_b)
+    end.
+  (*
   Fixpoint term_lift {I} `{FInt I} (n : N) (term : Term) : Term :=
     match term with
     | Var x =>
@@ -45,14 +81,18 @@ Section Substitution.
     | If0 c e1 e2 => If0 (term_lift n c) (term_lift n e1) (term_lift n e2)
     | Op op e1 e2 => Op op (term_lift n e1) (term_lift n e2)
     end.
+    *)
 
-  Fixpoint type_lift (n : N) (τ : FType) : FType :=
+  Fixpoint type_lift (n lift_by : N) (τ : KType) : KType :=
     match τ with
-    | Arrow τ1 τ2 => Arrow (type_lift n τ1) (type_lift n τ2)
-    | Prod τs => Prod (map (type_lift n) τs)
-    | TForall τ' => TForall (type_lift (N.succ n) τ')
-    | TVar x => if N.ltb x n then TVar x else TVar (x + 1)
-    | IntType => τ
+    | KProd types => KProd (map (type_lift n lift_by) types)
+    | KTForall type_param_count term_params =>
+      KTForall type_param_count (map (type_lift (n + type_param_count) lift_by ) term_params)
+    | KTVar index =>
+      if N.ltb index n
+      then KTVar index
+      else KTVar (index + lift_by)
+    | KIntType => KIntType
     end.
 
   Fixpoint term_subst {I} `{FInt I} (v : VarInd) (body arg : Term) : Term :=
