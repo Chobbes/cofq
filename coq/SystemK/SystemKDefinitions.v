@@ -44,7 +44,7 @@ Section KTypeInd.
 End KTypeInd.
 
 Inductive KValue {I} `{FInt I} : Type :=
-| KAnnotated    : KType -> RawValue -> Value
+| KAnnotated    : KType -> KRawValue -> KValue
 with KRawValue {I} `{FInt I} : Type :=
 | KNum          : I -> KRawValue
 | KVar          : VarInd -> KRawValue
