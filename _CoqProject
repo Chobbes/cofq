@@ -3,28 +3,27 @@
 -R ./vellvm/lib/InteractionTrees/theories ITree
 -R ./QuickChick/src QuickChick
 -I ./QuickChick/src
-coq/SystemF/SystemF.v
-coq/SystemF/SystemFTest.v
+coq/Show/ShowUtils.v
+coq/Test/TestUtils.v
+coq/Utils/Utils.v
+coq/BaseExpressions/Integers.v
+coq/BaseExpressions/IntegersShow.v
+coq/BaseExpressions/PrimOps.v
+coq/BaseExpressions/BaseExpressionTests.v
 coq/SystemF/SystemFDefinitions.v
 coq/SystemF/SystemFShow.v
+coq/SystemF/SystemFUtils.v
 coq/SystemF/SystemFSemantics.v
 coq/SystemF/SystemFTyping.v
-coq/SystemF/SystemFUtils.v
-coq/SystemK/SystemK.v
-coq/SystemK/SystemKTest.v
+coq/SystemF/SystemFTest.v
 coq/SystemK/SystemKDefinitions.v
 coq/SystemK/SystemKShow.v
+coq/SystemK/SystemKUtils.v
 coq/SystemK/SystemKSemantics.v
 coq/SystemK/SystemKTyping.v
-coq/SystemK/SystemKUtils.v
+coq/SystemK/SystemKTest.v
+coq/SystemK/SystemK.v
 coq/SystemK/SystemCDefinitions.v
 coq/SystemK/SystemCShow.v
 coq/SystemK/SystemCSemantics.v
 coq/SystemK/SystemCUtils.v
-coq/BaseExpressions/PrimOps.v
-coq/BaseExpressions/Integers.v
-coq/BaseExpressions/IntegersShow.v
-coq/BaseExpressions/BaseExpressionTests.v
-coq/Show/ShowUtils.v
-coq/Test/TestUtils.v
-coq/Utils/Utils.v
