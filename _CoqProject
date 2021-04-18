@@ -3,13 +3,13 @@
 -R ./vellvm/lib/InteractionTrees/theories ITree
 -R ./QuickChick/src QuickChick
 -I ./QuickChick/src
-coq/Show/ShowUtils.v
-coq/Test/TestUtils.v
 coq/Utils/Utils.v
 coq/BaseExpressions/Integers.v
 coq/BaseExpressions/IntegersShow.v
 coq/BaseExpressions/PrimOps.v
 coq/BaseExpressions/BaseExpressionTests.v
+coq/Show/ShowUtils.v
+coq/Test/TestUtils.v
 coq/SystemF/SystemFDefinitions.v
 coq/SystemF/SystemFShow.v
 coq/SystemF/SystemFUtils.v
