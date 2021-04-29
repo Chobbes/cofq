@@ -1,5 +1,5 @@
-From Cofq.SystemF Require Import
-     SystemFDefinitions.
+From Cofq.SystemK Require Import
+     SystemKDefinitions.
 
 From Cofq.Utils Require Import
      Utils.
@@ -17,31 +17,41 @@ Import MonadNotation.
 Local Open Scope monad_scope.
 Local Open Scope string_scope.
 
-Fixpoint term_size {I} `{FInt I} (term : Term) : nat :=
+Fixpoint kvalue_size {I} `{FInt I} (value : KValue) : nat :=
+  match value with
+  | KAnnotated type raw_value => 1 + kraw_value_size raw_value
+  end
+with kraw_value_size {I} `{FInt I} (raw_value : KRawValue) : nat :=
+  match raw_value with
+  | KNum num => 0
+  | KVar index => 0
+  | KFix type_param_count value_params fbody => 1 + kterm_size fbody
+  | KTuple tuple_bodies => 1 + (list_sum (map kvalue_size tuple_bodies))
+  end
+with kterm_size {I} `{FInt I} (term : KTerm) : nat :=
   match term with
-  | Var x => 0
-  | Ann e t => 1 + term_size e
-  | Fix fix_type arg_type body => 1 + term_size body
-  | App e1 e2 => 1 + term_size e1 + term_size e2
-  | TAbs e => 1 + term_size e
-  | TApp e t => 1 + term_size e
-  | Tuple es => 1 + (list_sum (map term_size es))
-  | ProjN i e => 1 + term_size e
-  | Num x => 0
-  | If0 c e1 e2 => 1 + term_size c + term_size e1 + term_size e2
-  | Op op e1 e2 => 1 + term_size e1 + term_size e2
+  | KLet declaration lbody => 1 + kdeclaration_size declaration + kterm_size lbody
+  | KApp f type_params value_params => 1 + kvalue_size f + (list_sum (map kvalue_size value_params))
+  | KIf0 value then_term else_term => 1 + kvalue_size value + kterm_size then_term + kterm_size else_term
+  | KHalt type value => 1 + kvalue_size value
+  end
+with kdeclaration_size {I} `{FInt I} (declaration : KDeclaration) : nat :=
+  match declaration with
+  | KVal value => 1 + kvalue_size value
+  | KProjN i value => 1 + kvalue_size value
+  | KOp op value_a value_b => 1 + kvalue_size value_a + kvalue_size value_b
   end
 .
 
-Fixpoint type_size (τ : FType) : nat :=
+Fixpoint ktype_size (τ : KType) : nat :=
   match τ with
-  | Arrow a b => 1 + type_size a + type_size b
-  | Prod ts => 1 + (list_sum (map type_size ts))
-  | TForall x => 1 + type_size x
-  | TVar x => 0
-  | IntType => 0
+  | KProd ts => 1 + (list_sum (map ktype_size ts))
+  | KTForall type_param_count term_params => 1 + (list_sum (map ktype_size term_params))
+  | KTVar x => 0
+  | KIntType => 0
   end.
 
+(*
 Obligation Tactic := try Tactics.program_simpl; try solve [cbn; try lia | repeat split; try solve [intros; discriminate | intros; intros CONTRA; inversion CONTRA; discriminate]].
 Program Fixpoint ftype_eq (τ1 : FType) (τ2 : FType) {measure (type_size τ1 + type_size τ2)} : bool
   := match τ1, τ2 with
@@ -96,3 +106,4 @@ Fixpoint is_value {I} `{FInt I} (e : Term) : bool :=
   | If0 x x0 x1 => false
   | Op x x0 x1 => false
   end.
+*)

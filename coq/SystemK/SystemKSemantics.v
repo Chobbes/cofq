@@ -30,11 +30,11 @@ Section Substitution.
   Definition nat_to_n (n : nat) : N. Admitted.
 
   (* Lift by 2 because fixpoint has a argument in addition to referring to itself *)
-  Fixpoint value_lift {I} `{FInt I} (n : N) (lift_by : N) (value : KValue) : KValue :=
+  Fixpoint kvalue_lift {I} `{FInt I} (n : N) (lift_by : N) (value : KValue) : KValue :=
     match value with
-    | KAnnotated type raw_value => KAnnotated type (raw_value_lift n lift_by raw_value)
+    | KAnnotated type raw_value => KAnnotated type (kraw_value_lift n lift_by raw_value)
     end
-  with raw_value_lift {I} `{FInt I} (n : N) (lift_by : N) (value : KRawValue) : KRawValue :=
+  with kraw_value_lift {I} `{FInt I} (n : N) (lift_by : N) (value : KRawValue) : KRawValue :=
     match value with
     | KNum num => KNum num
     | KVar index =>
@@ -44,79 +44,99 @@ Section Substitution.
     | KFix type_param_count value_params body =>
       KFix type_param_count
            value_params
-           (term_lift (n + (nat_to_n (length value_params)) + 1) lift_by body)
-    | KTuple values => KTuple (map (value_lift n lift_by) values)
+           (kterm_lift (n + (nat_to_n (length value_params)) + 1) lift_by body)
+    | KTuple values => KTuple (map (kvalue_lift n lift_by) values)
     end
-    with term_lift {I} `{FInt I} (n : N) (lift_by : N) (term : KTerm) : KTerm :=
+    with kterm_lift {I} `{FInt I} (n : N) (lift_by : N) (term : KTerm) : KTerm :=
     match term with
     | KLet declaration body =>
-      KLet (declaration_lift n lift_by declaration) (term_lift (n + 1) lift_by body)
+      KLet (kdeclaration_lift n lift_by declaration) (kterm_lift (n + 1) lift_by body)
     | KApp f type_params value_params =>
-      KApp (value_lift n lift_by f) type_params (map (value_lift n lift_by) value_params)
+      KApp (kvalue_lift n lift_by f) type_params (map (kvalue_lift n lift_by) value_params)
     | KIf0 value then_term else_term =>
-      KIf0 (value_lift n lift_by value) (term_lift n lift_by then_term) (term_lift n lift_by else_term)
-    | KHalt type value => KHalt type (value_lift n lift_by value)
+      KIf0 (kvalue_lift n lift_by value) (kterm_lift n lift_by then_term) (kterm_lift n lift_by else_term)
+    | KHalt type value => KHalt type (kvalue_lift n lift_by value)
     end
-    with declaration_lift {I} `{FInt I} (n : N) (lift_by : N) (declaration : KDeclaration) : KDeclaration :=
+    with kdeclaration_lift {I} `{FInt I} (n : N) (lift_by : N) (declaration : KDeclaration) : KDeclaration :=
     match declaration with
-    | KVal value => KVal (value_lift n lift_by value)
-    | KProjN i value => KProjN i (value_lift n lift_by value)
-    | KOp op value_a value_b => KOp op (value_lift n lift_by value_a) (value_lift n lift_by value_b)
+    | KVal value => KVal (kvalue_lift n lift_by value)
+    | KProjN i value => KProjN i (kvalue_lift n lift_by value)
+    | KOp op value_a value_b => KOp op (kvalue_lift n lift_by value_a) (kvalue_lift n lift_by value_b)
     end.
-  (*
-  Fixpoint term_lift {I} `{FInt I} (n : N) (term : Term) : Term :=
-    match term with
-    | Var x =>
-      if N.ltb x n
-      then Var x
-      else Var (x + 2)
-    | Ann term' type => Ann (term_lift n term') type
-    | Fix fix_type arg_type fbody => Fix fix_type arg_type (term_lift (n+2) fbody)
-    | App e1 e2 => App (term_lift n e1) (term_lift n e2)
-    | TAbs e => TAbs (term_lift n e)
-    | TApp e t => TApp (term_lift n e) t
-    | Tuple es => Tuple (map (term_lift n) es)
-    | ProjN i es => ProjN i (term_lift n es)
-    | Num x => Num x
-    | If0 c e1 e2 => If0 (term_lift n c) (term_lift n e1) (term_lift n e2)
-    | Op op e1 e2 => Op op (term_lift n e1) (term_lift n e2)
-    end.
-    *)
 
-  Fixpoint type_lift (n lift_by : N) (τ : KType) : KType :=
+  Fixpoint ktype_lift (n lift_by : N) (τ : KType) : KType :=
     match τ with
-    | KProd types => KProd (map (type_lift n lift_by) types)
+    | KProd types => KProd (map (ktype_lift n lift_by) types)
     | KTForall type_param_count term_params =>
-      KTForall type_param_count (map (type_lift (n + type_param_count) lift_by ) term_params)
+      KTForall type_param_count (map (ktype_lift (n + type_param_count) lift_by) term_params)
     | KTVar index =>
       if N.ltb index n
       then KTVar index
       else KTVar (index + lift_by)
     | KIntType => KIntType
     end.
-
-  Fixpoint term_subst {I} `{FInt I} (v : VarInd) (body arg : Term) : Term :=
+  
+  Fixpoint kvalue_subst {I} `{FInt I} (v : VarInd) (body : KValue) (arg : KRawValue) : KValue :=
     match body with
-    | Var x =>
-      if N.eqb x v
+    | KAnnotated type raw_value => KAnnotated type (kraw_value_subst v raw_value arg)
+    end
+  with kraw_value_subst {I} `{FInt I} (v : VarInd) (body : KRawValue) (arg : KRawValue) : KRawValue :=
+    match body with
+    | KNum num => KNum num
+    | KVar index =>
+      if N.eqb index v
       then arg
-      else Var x
-    | Fix fix_type arg_type fbody =>
-      Fix fix_type arg_type (term_subst (v + 2) fbody (term_lift 0 arg))
-    | Ann e t => Ann (term_subst v e arg) t
-    | App e1 e2 => App (term_subst v e1 arg) (term_subst v e2 arg)
-    | TAbs e => TAbs (term_subst v e arg)
-    | TApp e t => TApp (term_subst v e arg) t
-    | Tuple es => Tuple (map (fun e => term_subst v e arg) es)
-    | ProjN i e => ProjN i (term_subst v e arg)
-    | Num x => Num x
-    | If0 c e1 e2 => If0 (term_subst v c arg) (term_subst v e1 arg) (term_subst v e2 arg)
-    | Op op e1 e2 => Op op (term_subst v e1 arg) (term_subst v e2 arg)
-    end.
+      else KVar index
+    | KFix type_param_count value_params fbody =>
+      KFix type_param_count
+          value_params
+          (kterm_subst
+            (v + (nat_to_n (length value_params)) + 1)
+            fbody
+            (kraw_value_lift 0 ((nat_to_n (length value_params)) + 1) arg)
+          )
+    | KTuple tuple_bodies => KTuple (map (fun tuple_body => kvalue_subst v tuple_body arg) tuple_bodies)
+    end
+    with kterm_subst {I} `{FInt I} (v : VarInd) (body : KTerm) (arg : KRawValue) : KTerm :=
+      match body with
+      | KLet declaration lbody =>
+        KLet
+          (kdeclaration_subst v declaration arg)
+          (kterm_subst
+            (v + 1)
+            lbody
+            (kraw_value_lift 0 1 arg)
+          )
+      | KApp f type_params value_params =>
+        KApp
+          (kvalue_subst v f arg)
+          type_params
+          (map (fun value_param => kvalue_subst v value_param arg) value_params)
+      | KIf0 value then_term else_term =>
+        KIf0
+          (kvalue_subst v value arg)
+          (kterm_subst v then_term arg)
+          (kterm_subst v else_term arg)
+      | KHalt type value =>
+        KHalt type (kvalue_subst v value arg)
+      end
+    with kdeclaration_subst {I} `{FInt I} (v : VarInd) (body : KDeclaration) (arg : KRawValue) : KDeclaration :=
+      match body with
+      | KVal value =>
+        KVal (kvalue_subst v value arg) 
+      | KProjN i value =>
+        KProjN i (kvalue_subst v value arg) 
+      | KOp op value_a value_b =>
+        KOp op
+          (kvalue_subst v value_a arg)
+          (kvalue_subst v value_b arg)
+      end
+    .
 
+  (*
   Lemma type_lift_type_size:
     forall τ n,
-      type_size (type_lift n τ) = type_size τ.
+      type_size (ktype_lift n τ) = type_size τ.
   Proof.
     induction τ; intros sz; cbn;
       repeat match goal with
@@ -129,32 +149,85 @@ Section Substitution.
     rewrite map_map.
     erewrite map_ext_in; eauto.
   Qed.
-
+  *)
 
   Obligation Tactic := try Tactics.program_simpl; try solve [cbn; try lia | repeat split; try solve [intros; discriminate]].
-  Program Fixpoint type_subst_in_type (v : TypeInd) (τ : FType) (arg : FType) {measure (type_size τ)} : FType :=
+  Program Fixpoint ktype_subst_in_type (v : TypeInd) (τ : KType) (arg : KType) {measure (ktype_size τ)} : KType :=
     match τ with
-    | TVar x =>
+    | KProd τs =>
+      KProd (map_In τs (fun τ HIn => ktype_subst_in_type v τ arg))
+    | KTForall type_param_count term_params =>
+      KTForall type_param_count
+        (map (fun τ' =>
+          ktype_subst_in_type (v + type_param_count) τ' (ktype_lift 0 type_param_count arg)
+        ) term_params)
+    | KTVar x =>
       if N.eqb x v
       then arg
       else if N.ltb v x
-           then TVar (x-1)
-           else TVar x
-    | Arrow τ1 τ2 => Arrow (type_subst_in_type v τ1 arg) (type_subst_in_type v τ2 arg)
-    | Prod τs =>
-      Prod (map_In τs (fun τ HIn => type_subst_in_type v τ arg))
-    | TForall τ' => TForall (type_subst_in_type (v+1) τ' (type_lift 0 arg))
-    | IntType => IntType
+          then KTVar (x-1)
+          else KTVar x
+    | KIntType => KIntType
     end.
   Next Obligation.
     cbn.
-    pose proof (list_sum_map type_size τ τs HIn).
+    pose proof (list_sum_map ktype_size τ τs HIn).
     lia.
   Qed.
 
+  Fixpoint ktype_subst_value {I} `{FInt I} (v : TypeInd) (e : KValue) (arg_type : KType) : KValue :=
+    match e with
+    | KAnnotated type raw_value =>
+      KAnnotated
+        (ktype_subst_in_type v type arg_type)
+        (ktype_subst_raw_value v raw_value arg_type)
+    end
+  with ktype_subst_raw_value {I} `{FInt I} (v : TypeInd) (e : KRawValue) (arg_type : KType) : KRawValue :=
+    match e with
+    | KNum num => KNum num
+    | KVar index => KVar index
+    | KFix type_param_count value_params fbody =>
+      KFix type_param_count
+        (map (ktype_subst_value (v + type_param_count) value_param arg_type) value_params)
+        (ktype_subst_term (v + type_param_count) body arg_type)
+    | KTuple tuple_bodies => 
+      (map (ktype_subst_value type_param_count tuple_body arg_type) tuple_bodies)
+    end
+  with ktype_subst_term {I} `{FInt I} (v : TypeInd) (e : KTerm) (arg_type : KType) : KTerm :=
+    match e with
+    | KLet declaration lbody =>
+      KLet
+        (ktype_subst_declaration v declaration arg_type)
+        (ktype_subst_term v lbody arg_type)
+    | KApp f type_params value_params =>
+      KApp
+        (ktype_subst_value v f arg_type)
+        (map (fun type => type_subst_in_type v type arg_type) type_params)
+        (map (fun value => ktype_subst_value v value arg_type) value_params)
+    | KIf0 value then_term else_term =>
+      KIf0
+        (ktype_subst_value v value arg_type)
+        (ktype_subst_term v then_term arg_type)
+        (ktype_subst_term v else_term arg_type)
+    | KHalt type value =>
+      KHalt
+        (type_subst_in_type v type arg_type)
+        (ktype_subst_value v value arg_type)
+    end
+  with ktype_subst_declaration {I} `{FInt I} (v : TypeInd) (e : KDeclaration) (arg_type : KType) : KDeclaration :=
+    match e with
+    | KVal value => KVal (ktype_subst_value v value arg_type)
+    | KProjN i value => KProjN i (ktype_subst_value v value arg_type)
+    | KOp op value_a value_b =>
+      KOp op
+        (ktype_subst_value v value_a arg_type)
+        (ktype_subst_value v value_b arg_type)
+    end
+  .
+
   Fixpoint type_subst {I} `{FInt I} (v : TypeInd) (e : Term) (arg_type : FType) : Term
     := match e with
-       | TAbs e => TAbs (type_subst (v+1) e (type_lift 0 arg_type))
+       | TAbs e => TAbs (type_subst (v+1) e (ktype_lift 0 arg_type))
        | TApp e τ => TApp (type_subst v e arg_type) (type_subst_in_type v τ arg_type)
        | Fix fτ τ body => Fix (type_subst_in_type v fτ arg_type) (type_subst_in_type v τ arg_type) (type_subst v body arg_type)
        | App e1 e2 => App (type_subst v e1 arg_type) (type_subst v e2 arg_type)
@@ -168,7 +241,7 @@ Section Substitution.
        end.
 
   Definition app_fix {I} `{FInt I} (fix_type arg_type : FType) (body : Term) (arg : Term) : Term :=
-    term_subst 1 (term_subst 0 body (Fix fix_type arg_type body)) arg.
+    kterm_subst 1 (kterm_subst 0 body (Fix fix_type arg_type body)) arg.
 End Substitution.
 
 
