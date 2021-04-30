@@ -1,4 +1,3 @@
-(*
 From QuickChick Require Import QuickChick.
 Import QcDefaultNotation. Open Scope qc_scope.
 Import GenLow GenHigh.
@@ -492,4 +491,3 @@ QuickCheck (forAll (genFType 0) (fun τ => forAll (genTerm_terminating 0 [] τ)
 (*                                                        whenFail x *)
 (*                                                        false *)
 (*                                                      end))). *)
-*)
