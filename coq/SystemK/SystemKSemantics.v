@@ -158,9 +158,8 @@ Section Substitution.
       KProd (map_In τs (fun τ HIn => ktype_subst_in_type v τ arg))
     | KTForall type_param_count term_params =>
       KTForall type_param_count
-        (map (fun τ' =>
-          ktype_subst_in_type (v + type_param_count) τ' (ktype_lift 0 type_param_count arg)
-        ) term_params)
+               (map_In term_params
+                       (fun τ' HIn => ktype_subst_in_type (v + type_param_count) τ' (ktype_lift 0 type_param_count arg)))
     | KTVar x =>
       if N.eqb x v
       then arg
@@ -172,6 +171,11 @@ Section Substitution.
   Next Obligation.
     cbn.
     pose proof (list_sum_map ktype_size τ τs HIn).
+    lia.
+  Qed.
+  Next Obligation.
+    cbn.
+    pose proof (list_sum_map ktype_size τ' term_params HIn).
     lia.
   Qed.
 
