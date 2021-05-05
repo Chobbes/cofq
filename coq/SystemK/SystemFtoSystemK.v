@@ -54,12 +54,14 @@ Fixpoint cps_translate_term {I} `{FInt I} (t : Term) (k : KValue): KTerm :=
         let ret_ktype := cps_translate_type ret_type in
         let ret_ktypecont := cps_translate_type_cont ret_ktype in
         let kfix_arg_types := [arg_ktype; ret_ktypecont] in
+        (* TODO we need to lift the free variables and the argument of `body` by 1,
+           to account for the addition of the continuation as an argument *)
         let kvalue_thunk := KFix 0 kfix_arg_types (cps_translate_term body (KAnnotated (cps_translate_type ret_type) (KVar 0))) in
         continue t kvalue_thunk
     | Num num =>
         continue t (KNum num)
     | App f x =>
-        (* TODO VARIABLE LIFTING *)
+        (* TODO lift k by 2, lift the translation of x by 1 *)
         let k_f_type := ktypeof f in
         let k_x_type := ktypeof x in
         let k_f_var := KAnnotated k_f_type (KVar 1) in
@@ -72,12 +74,14 @@ Fixpoint cps_translate_term {I} `{FInt I} (t : Term) (k : KValue): KTerm :=
         let f_cont_ann := KAnnotated (KTForall 0 [k_f_type]) f_cont in
         cps_translate_term f f_cont_ann
     | TAbs body =>
+        (* TODO we need to lift the free variables of `body` by 1 *)
         let k_body_type := ktypeof body in
         let new_continuation := KAnnotated (cps_translate_type_cont k_body_type) (KVar 0) in
         let k_body := cps_translate_term body new_continuation in
         let k_thunk := KFix 1 [] k_body in
         continue t k_thunk
     | TApp f type_arg =>
+        (* TODO lift continuation by 1 *)
         let k_type_arg := cps_translate_type type_arg in
         let k_f_type := ktypeof f in
         let k_f_var := KAnnotated k_f_type (KVar 0) in
@@ -86,7 +90,8 @@ Fixpoint cps_translate_term {I} `{FInt I} (t : Term) (k : KValue): KTerm :=
         let f_cont_ann := KAnnotated (KTForall 0 [k_f_type]) f_cont in
         cps_translate_term f f_cont_ann
     | Tuple terms =>
-         (* k_var_list is [KVar n; KVar n - 1; ...; KVar 0], but with type annotations *)
+        (* TOOD lift the continuation by n, lift each term i by i*)
+        (* k_var_list is [KVar n; KVar n - 1; ...; KVar 0], but with type annotations *)
         let k_var_list := fold_right (fun term ret =>
             let k_var := KVar (nat_as_var_ind (length ret)) in
             let k_var_ann := KAnnotated (ktypeof term) k_var in
@@ -101,6 +106,7 @@ Fixpoint cps_translate_term {I} `{FInt I} (t : Term) (k : KValue): KTerm :=
         in
         fold_right k_term_ind k_term_base terms
     | ProjN i term =>
+        (* TODO lift continuation by 2, one for the tuple, one for the result of projecting *)
         let k_prod_type := ktypeof term in
         let k_proj_type := ktypeof t in
         let k_prod_var := KAnnotated k_prod_type (KVar 0) in
@@ -112,6 +118,7 @@ Fixpoint cps_translate_term {I} `{FInt I} (t : Term) (k : KValue): KTerm :=
         let prod_cont_ann := KAnnotated (KTForall 0 [k_prod_type]) prod_cont in
         cps_translate_term term prod_cont_ann
     | Op op a b =>
+        (* TODO lift continuation by 3, for a, b, and a op b. lift the translated version of b by 1 *)
         let k_a_type := ktypeof a in
         let k_b_type := ktypeof b in
         let k_res_type := ktypeof t in
@@ -128,6 +135,7 @@ Fixpoint cps_translate_term {I} `{FInt I} (t : Term) (k : KValue): KTerm :=
         let a_cont_ann := KAnnotated (KTForall 0 [k_a_type]) a_cont in
         cps_translate_term a a_cont_ann
     | If0 cond then_case else_case =>
+        (* TODO lift continuation by 1, for the condition *)
         let k_cond_type := ktypeof cond in
         let k_res_type := ktypeof t in
         let k_cond_var := KAnnotated k_cond_type (KVar 0) in
