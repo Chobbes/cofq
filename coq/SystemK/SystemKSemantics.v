@@ -158,9 +158,8 @@ Section Substitution.
       KProd (map_In τs (fun τ HIn => ktype_subst_in_type v τ arg))
     | KTForall type_param_count term_params =>
       KTForall type_param_count
-        (map (fun τ' =>
-          ktype_subst_in_type (v + type_param_count) τ' (ktype_lift 0 type_param_count arg)
-        ) term_params)
+               (map_In term_params
+                       (fun τ' HIn => ktype_subst_in_type (v + type_param_count) τ' (ktype_lift 0 type_param_count arg)))
     | KTVar x =>
       if N.eqb x v
       then arg
@@ -172,6 +171,11 @@ Section Substitution.
   Next Obligation.
     cbn.
     pose proof (list_sum_map ktype_size τ τs HIn).
+    lia.
+  Qed.
+  Next Obligation.
+    cbn.
+    pose proof (list_sum_map ktype_size τ' term_params HIn).
     lia.
   Qed.
 
@@ -188,10 +192,10 @@ Section Substitution.
     | KVar index => KVar index
     | KFix type_param_count value_params fbody =>
       KFix type_param_count
-        (map (ktype_subst_value (v + type_param_count) value_param arg_type) value_params)
-        (ktype_subst_term (v + type_param_count) body arg_type)
+        (map (fun value_param => ktype_subst_in_type (v + type_param_count) value_param arg_type) value_params)
+        (ktype_subst_term (v + type_param_count) fbody arg_type)
     | KTuple tuple_bodies => 
-      (map (ktype_subst_value type_param_count tuple_body arg_type) tuple_bodies)
+      KTuple (map (fun tuple_body => ktype_subst_value v tuple_body arg_type) tuple_bodies)
     end
   with ktype_subst_term {I} `{FInt I} (v : TypeInd) (e : KTerm) (arg_type : KType) : KTerm :=
     match e with
@@ -202,7 +206,7 @@ Section Substitution.
     | KApp f type_params value_params =>
       KApp
         (ktype_subst_value v f arg_type)
-        (map (fun type => type_subst_in_type v type arg_type) type_params)
+        (map (fun type => ktype_subst_in_type v type arg_type) type_params)
         (map (fun value => ktype_subst_value v value arg_type) value_params)
     | KIf0 value then_term else_term =>
       KIf0
@@ -211,7 +215,7 @@ Section Substitution.
         (ktype_subst_term v else_term arg_type)
     | KHalt type value =>
       KHalt
-        (type_subst_in_type v type arg_type)
+        (ktype_subst_in_type v type arg_type)
         (ktype_subst_value v value arg_type)
     end
   with ktype_subst_declaration {I} `{FInt I} (v : TypeInd) (e : KDeclaration) (arg_type : KType) : KDeclaration :=
