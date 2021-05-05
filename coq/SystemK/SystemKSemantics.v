@@ -228,31 +228,13 @@ Section Substitution.
         (ktype_subst_value v value_b arg_type)
     end
   .
-
-  Fixpoint type_subst {I} `{FInt I} (v : TypeInd) (e : Term) (arg_type : FType) : Term
-    := match e with
-       | TAbs e => TAbs (type_subst (v+1) e (ktype_lift 0 arg_type))
-       | TApp e τ => TApp (type_subst v e arg_type) (type_subst_in_type v τ arg_type)
-       | Fix fτ τ body => Fix (type_subst_in_type v fτ arg_type) (type_subst_in_type v τ arg_type) (type_subst v body arg_type)
-       | App e1 e2 => App (type_subst v e1 arg_type) (type_subst v e2 arg_type)
-       | If0 c e1 e2 => If0 (type_subst v c arg_type) (type_subst v e1 arg_type) (type_subst v e2 arg_type)
-       | Op op e1 e2 => Op op (type_subst v e1 arg_type) (type_subst v e2 arg_type)
-       | Tuple es => Tuple (map (fun e => type_subst v e arg_type) es)
-       | ProjN i e => ProjN i (type_subst v e arg_type)
-       | Ann e τ => Ann (type_subst v e arg_type) (type_subst_in_type v τ arg_type)
-       | Num x => Num x
-       | Var x => Var x
-       end.
-
-  Definition app_fix {I} `{FInt I} (fix_type arg_type : FType) (body : Term) (arg : Term) : Term :=
-    kterm_subst 1 (kterm_subst 0 body (Fix fix_type arg_type body)) arg.
 End Substitution.
 
-
+(*
 (** Single-step semantics for SystemF, useful for testing. *)
 Section SingleStep.
   Obligation Tactic := try Tactics.program_simpl; try solve [cbn; try lia | repeat split; try solve [intros; discriminate]].
-  Program Fixpoint step {I} `{FInt I} (e : Term) {measure (term_size e)} : (unit + Term) :=
+  Program Fixpoint step {I} `{FInt I} (e : KTerm) {measure (kterm_size e)} : (unit + KTerm) :=
     match e with
     | Ann e t => step e
     | Fix fix_type arg_type body => inl tt
@@ -388,3 +370,4 @@ Section Denotation.
   Definition eval {I} `{FInt I} `{Show I} : Term -> itree Failure Term :=
     rec eval_body.
 End Denotation.
+*)
