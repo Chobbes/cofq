@@ -1,39 +1,68 @@
-From Cofq.SystemF Require Import SystemFDefinitions.
+From Cofq.SystemK Require Import SystemKDefinitions.
+From Cofq.BaseExpressions Require Import Integers.
 From Cofq.Show Require Import ShowUtils.
 
-From Coq Require Import String.
+From Coq Require Import String List.
 Open Scope string_scope.
 
-Fixpoint showFType_helper (prec : Precedence) (t : FType) :=
+Require Import QuickChick.
+
+Fixpoint showKType' (t : KType) :=
   match t with
-  | Arrow a b => parens prec PrecApp (showFType_helper PrecInner a ++ "->" ++ showFType_helper PrecApp b)
-  | Prod ts => "<" ++ intersperse ", " (map (showFType_helper PrecOuter) ts) ++ ">"
-  | TForall t => parens prec PrecOuter ("forall " ++ showFType_helper PrecOuter t)
-  | TVar x => "t" ++ show x
-  | IntType => "Int"
+  | KProd ts => "KProd " ++ show (map showKType' ts)
+  | KTForall n ts => "KTForall " ++ show n ++ " " ++ show (map showKType' ts)
+  | KTVar x => "KTVar " ++ show x
+  | KIntType => "KIntType"
   end.
 
-Instance showFType : Show FType := 
-  {| show := showFType_helper PrecOuter
+Instance showKType : Show KType := 
+  {| show := showKType'
+  |}.
+(*
+Fixpoint showKValue' {I} `{FInt I} `{Show I} (v : KValue) :=
+  match v with
+  | KAnnotated t rv => "KAnnotated (" ++ showKRawValue' rv ++ ") (" ++ show t ++ ")"
+  end
+with showKRawValue' {I} `{FInt I} `{Show I} (rv : KRawValue) :=
+       match rv with
+       | KNum x => "CNum (" ++ show x ++ ")"
+       | KVar x => "CVar (" ++ show x ++ ")"
+       | KTuple x => "CTuple " ++ show (map showKValue' x)
+       end.
+
+Instance showCValue {I} `{FInt I} `{Show I} : Show CValue :=
+  {| show := showCValue'
   |}.
 
-Fixpoint showTerm_helper {I} `{FInt I} `{Show I} (prec : Precedence) (e : Term) :=
-  match e with
-  | Var x => "v" ++ show x
-  | Ann e t => parens prec PrecOuter (showTerm_helper PrecOuter e ++ " : " ++ show t)
-  | Fix ft t body => parens prec PrecOuter ("λ " ++ show ft ++ " " ++ show t ++ ". " ++ showTerm_helper PrecOuter body)
-  | TAbs e => parens prec PrecOuter ("Λ. " ++ showTerm_helper PrecOuter e)
-  | App e1 e2 => parens prec PrecInner (showTerm_helper PrecInner e1 ++ " " ++ showTerm_helper PrecApp e2)
-  | TApp e t => parens prec PrecInner (showTerm_helper PrecInner e ++ " [" ++ show t ++ "]")
-  | Tuple es => "<" ++ intersperse ", " (map (showTerm_helper PrecOuter) es) ++ ">"
-  | ProjN i e => parens prec PrecInner ("π" ++ show i ++ " " ++ showTerm_helper PrecApp e)
-  | Num n => show n
-  | If0 c e1 e2 => parens prec PrecApp ("if0 " ++ showTerm_helper PrecOuter c ++ " then " ++ showTerm_helper PrecOuter e1 ++ " else " ++ showTerm_helper PrecOuter e2)
-  | Op op e1 e2 =>
-    let oprec := op_prec op in
-    parens prec oprec (showTerm_helper oprec e1 ++ " " ++ show op ++ " " ++ showTerm_helper oprec e2) 
+Instance showCRawValue {I} `{FInt I} `{Show I} : Show CRawValue :=
+  {| show := showCRawValue'
+  |}.
+
+Definition showCDeclaration' {I} `{FInt I} `{Show I} (d : CDeclaration) :=
+  match d with
+  | CVal x => "CVal (" ++ show x ++ ")"
+  | CProjN i v => "CProjN (" ++ show i ++ ") (" ++ show v ++ ")"
+  | COp op v1 v2 => "COp " ++ show op ++ " (" ++ show v1 ++ ") (" ++ show v2 ++ ")"
+  | CUnpack x => "CUnpack (" ++ show x ++ ")"
   end.
 
-Instance showTerm {I} `{FInt I} `{Show I} : Show Term :=
-  {| show := showTerm_helper PrecOuter
+Instance showCDeclaration {I} `{FInt I} `{Show I} : Show CDeclaration :=
+  {| show := showCDeclaration'
   |}.
+
+Fixpoint showCTerm' {I} `{FInt I} `{Show I} (term : CTerm) :=
+  match term with
+  | CLet dec v =>
+    "CLet (" ++ show dec ++ ") (" ++ showCTerm' v ++ ")"
+  | CApp f vs =>
+    "CApp (" ++ show f  ++ ") " ++ show vs
+  | CIf0 c e1 e2 =>
+    "CIf0 (" ++ show c ++ ") (" ++ showCTerm' e1 ++ ") (" ++ showCTerm' e2 ++ ")"
+  | CHalt x τ =>
+    "CHalt (" ++ show x ++ ") (" ++ show τ ++ ")"
+  end.
+
+Instance showCTerm {I} `{FInt I} `{Show I} : Show CTerm :=
+  {| show := showCTerm'
+  |}.
+*)

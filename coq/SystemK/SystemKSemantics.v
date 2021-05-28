@@ -8,6 +8,7 @@ From Cofq.Show Require Import ShowUtils.
 
 From Coq Require Import
      Lia
+     String
      List.
 
 From ExtLib Require Import
@@ -27,9 +28,6 @@ From ITree Require Import
 From Vellvm.Utils Require Import Util.
 
 Section Substitution.
-  Definition nat_to_n (n : nat) : N. Admitted.
-
-  (* Lift by 2 because fixpoint has a argument in addition to referring to itself *)
   Fixpoint kvalue_lift {I} `{FInt I} (n : N) (lift_by : N) (value : KValue) : KValue :=
     match value with
     | KAnnotated type raw_value => KAnnotated type (kraw_value_lift n lift_by raw_value)
@@ -44,7 +42,7 @@ Section Substitution.
     | KFix type_param_count value_params body =>
       KFix type_param_count
            value_params
-           (kterm_lift (n + (nat_to_n (length value_params)) + 1) lift_by body)
+           (kterm_lift (n + (N.of_nat (length value_params)) + 1) lift_by body)
     | KTuple values => KTuple (map (kvalue_lift n lift_by) values)
     end
     with kterm_lift {I} `{FInt I} (n : N) (lift_by : N) (term : KTerm) : KTerm :=
@@ -91,9 +89,9 @@ Section Substitution.
       KFix type_param_count
           value_params
           (kterm_subst
-            (v + (nat_to_n (length value_params)) + 1)
+            (v + (N.of_nat (length value_params)) + 1)
             fbody
-            (kraw_value_lift 0 ((nat_to_n (length value_params)) + 1) arg)
+            (kraw_value_lift 0 ((N.of_nat (length value_params)) + 1) arg)
           )
     | KTuple tuple_bodies => KTuple (map (fun tuple_body => kvalue_subst v tuple_body arg) tuple_bodies)
     end
@@ -230,144 +228,100 @@ Section Substitution.
   .
 End Substitution.
 
-(*
-(** Single-step semantics for SystemF, useful for testing. *)
-Section SingleStep.
-  Obligation Tactic := try Tactics.program_simpl; try solve [cbn; try lia | repeat split; try solve [intros; discriminate]].
-  Program Fixpoint step {I} `{FInt I} (e : KTerm) {measure (kterm_size e)} : (unit + KTerm) :=
-    match e with
-    | Ann e t => step e
-    | Fix fix_type arg_type body => inl tt
-    | App (Fix fix_type arg_type body) arg =>
-      inr (app_fix fix_type arg_type body arg)
-    | App e1 e2 =>
-      e1v <- step e1;;
-      inr (App e1v e2)
-    | Op op (Num xn) (Num yn) =>
-      inr (Num (eval_op op xn yn))
-    | Op op (Num xn) y =>
-      yv <- step y ;;
-      inr (Op op (Num xn) yv)
-    | Op op x y =>
-      xv <- step x ;;
-      inr (Op op xv y)
-    | TApp (TAbs e) arg_type =>
-      inr (type_subst 0 e arg_type)
-    | TApp e t =>
-      e' <- step e;;
-      inr (TApp e' t)
-    | ProjN i (Tuple es) =>
-      match nth_error es (N.to_nat i) with
-      | Some e => step e
-      | None => inl tt
-      end
-    | ProjN i e =>
-      ev <- step e;;
-      inr (ProjN i ev)
-    | If0 (Num x) e1 e2 =>
-      if eq x zero
-      then inr e1
-      else inr e2
-    | If0 c e1 e2 =>
-      cv <- step c;;
-      inr (If0 cv e1 e2)
-    | _ => inl tt
-    end.
-  Next Obligation.
-    cbn.
-    symmetry in Heq_anonymous.
-    apply nth_error_In in Heq_anonymous.
-    pose proof (list_sum_map term_size e es Heq_anonymous).
-    lia.
-  Qed.
-
-  Definition step' {I} `{FInt I} (v : unit + Term) : (unit + Term)
-    := match v with
-       | inl tt => inl tt
-       | inr t => step t
-       end.
-
-  Fixpoint multistep {I} `{FInt I} (n : nat) (v : Term) : Term
-    := match n with
-       | O => v
-       | S n =>
-         match step v with
-         | inl tt => v
-         | inr t => multistep n t
-         end
-       end.
-
-  (* Returns a term only if it's fully evaluated *)
-  Fixpoint multistep' {I} `{FInt I} (n : nat) (v : Term) : option Term
-    := match n with
-       | O => None
-       | S n =>
-         match step v with
-         | inl tt => Some v
-         | inr t => multistep' n t
-         end
-       end.
-End SingleStep.
-
-(** Denotation of SystemF in terms of itrees. *) 
+(** Denotation of SystemK in terms of itrees. *) 
 Section Denotation.
+Set Implicit Arguments.
+Set Contextual Implicit.
   Definition Failure := exceptE string.
 
-  Definition eval_body {I} `{FInt I} `{Show I} (e : Term) : itree (callE Term Term +' Failure) Term :=
-    match e with
-    | Ann e t => call e
-    | App e1 e2 =>
-      e1v <- call e1;;
-      e2v <- call e2;;
-      match e1v with
-      | Fix fix_type arg_type body =>
-        call (app_fix fix_type arg_type body e2v)
-      | _ => throw ("ill-typed application: " ++ show e)
-      end
-    | TApp e t =>
-      e' <- call e;;
-      match e' with
-      | TAbs body =>
-        call (type_subst 0 body t)
-      | _ => throw ("ill-typed type application: " ++ show (TApp e' t))
-      end
-    | ProjN i es =>
-      es' <- call es;;
-      match es' with
-      | Tuple xs =>
-        match nth_error xs (N.to_nat i) with
-        | Some e => call e
-        | None => throw ("tuple projection out of bounds: " ++ show e)
-        end
-      | _ => throw ("ill-typed tuple projection: " ++ show e)
-      end
-    | If0 c e1 e2 =>
-      cv <- call c;;
-      match cv with
-      | Num x =>
-        if eq x zero
-        then call e1
-        else call e2
-      | _ => throw ("ill-typed if0: " ++ show e)
-      end
-    | Op op e1 e2 =>
-      e1v <- call e1;;
-      e2v <- call e2;;
-      match e1v, e2v with
-      | Num x, Num y =>
-        ret (Num (eval_op op x y))
-      | _, _ => throw ("ill-typed operation: " ++ show e)
-      end
-    | Num x => ret e
-    | TAbs x => ret e
-    | Tuple xs =>
-      xs' <- map_monad call xs;;
-      ret (Tuple xs')
-    | Fix fix_type arg_type body => ret e
-    | Var x => ret e
-    end.
+  Definition kv_to_rv {I} `{FInt I} (val : KValue) : KRawValue
+    := match val with
+       | KAnnotated τ rv => rv
+       end.
 
-  Definition eval {I} `{FInt I} `{Show I} : Term -> itree Failure Term :=
-    rec eval_body.
+  Open Scope string_scope.
+  Definition keval_declaration {I} `{FInt I} (*`{Show I}*) (dec : KDeclaration) : itree Failure ((KType * KRawValue) + KRawValue)
+    := match dec with
+       | KVal x =>
+         ret (inr (kv_to_rv x))
+       | KProjN i v =>
+         match kv_to_rv v with
+         | KTuple vs =>
+           match nth_error vs (N.to_nat i) with
+           | Some e => ret (inr (kv_to_rv e))
+           | None => throw ("Tuple projection out of bounds: "(* ++ show dec*))
+           end
+         | _ =>
+           throw ("Ill-typed projection: "(* ++ show dec*))
+         end
+       | KOp op e1 e2 =>
+         match kv_to_rv e1, kv_to_rv e2 with
+         | KNum x, KNum y =>
+           ret (inr (KNum (eval_op op x y)))
+         | _, _ =>
+           throw ("Ill-typed operation: "(* ++ show dec*))
+         end
+       end.
+
+  Notation TermE := (callE KTerm KRawValue +' Failure).
+  Notation ProgE := Failure.
+
+  Definition fail_to_TermE {I} `{FInt I} : Failure ~> TermE :=
+    fun T f => inr1 f.
+
+  Definition keval_declaration' {I} `{FInt I} `{Show I} (dec : KDeclaration) : itree TermE ((KType * KRawValue) + KRawValue) :=
+    translate fail_to_TermE (keval_declaration dec).
+  
+  Definition apply_args {I} `{FInt I} (e : KTerm) (args : list KValue) : KTerm
+    := fold_left (fun body '(i, arg) => kterm_subst i body (kv_to_rv arg)) (addIndices' 1 args) e.
+
+  Definition apply_type_args {I} `{FInt I} (e : KTerm) (type_args : list KType) : KTerm
+  := fold_left (fun body '(i, type_arg) => ktype_subst_term i body type_arg) (addIndices' 1 type_args) e.
+
+  Definition eval_app {I} `{FInt I} (e : KTerm) (x : VarInd) (args : list KValue) : itree TermE KRawValue
+    := let body := kterm_subst 0 e (KVar x)
+       in call (apply_args body args).
+
+  Definition eval_app_type {I} `{FInt I} (e : KTerm) (x : VarInd) (τ : KType) (args : list KValue) : itree TermE KRawValue
+    := let body := kterm_subst 0 (ktype_subst_term 0 e τ) (KVar x)
+       in call (apply_args body args).
+
+  Definition raise {E} {A} `{Failure -< E} (msg : string) : itree E A :=
+    v <- trigger (Throw msg);; match v: void with end.
+
+  Definition keval_term {I} `{FI: FInt I} `{Show I} (e : KTerm) : itree TermE KRawValue
+    := match e with
+       | KHalt τ v =>
+         ret (kv_to_rv v)
+       | KLet dec body =>
+         d <- keval_declaration' dec;;
+         match d with
+         | inl (τ, dv) =>
+           call (ktype_subst_term 0 (kterm_subst 0 body dv) τ)
+         | inr dv =>
+           call (kterm_subst 0 body dv)
+         end
+       | KApp f type_args args =>
+         match kv_to_rv f with
+         | KFix n_type_params term_param_types body =>
+          let type_substd := apply_type_args body type_args in
+          let value_substd := apply_args type_substd args in 
+          call (value_substd)
+         | KVar x => raise "ILL TYPED APPLICATION ACCORDING TO CALVIN"
+         | _ => raise "unimplemented"
+         end
+       | KIf0 c e1 e2 =>
+         match kv_to_rv c with
+         | KNum x =>
+           if eq x zero
+           then call e1
+           else call e2
+         | _ =>
+           raise ("Conditional not a number: "(* ++ show e*))
+         end
+        
+       end.
+
+  Definition keval_term_loop {I} `{FI: FInt I} `{Show I} (e : KTerm) : itree Failure KRawValue
+    := rec keval_term e.
 End Denotation.
-*)
