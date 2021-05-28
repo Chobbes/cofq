@@ -23,7 +23,8 @@ coq/SystemK/SystemKSemantics.v
 coq/SystemK/SystemKTyping.v
 coq/SystemK/SystemKTest.v
 coq/SystemK/SystemK.v
-coq/SystemK/SystemCDefinitions.v
-coq/SystemK/SystemCShow.v
-coq/SystemK/SystemCSemantics.v
-coq/SystemK/SystemCUtils.v
+coq/SystemK/SystemFtoSystemK.v
+coq/SystemC/SystemCDefinitions.v
+coq/SystemC/SystemCShow.v
+coq/SystemC/SystemCSemantics.v
+coq/SystemC/SystemCUtils.v

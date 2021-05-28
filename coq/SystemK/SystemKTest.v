@@ -1,4 +1,3 @@
-(*
 From QuickChick Require Import QuickChick.
 Import QcDefaultNotation. Open Scope qc_scope.
 Import GenLow GenHigh.
@@ -13,12 +12,14 @@ From Vellvm Require Import
      Numeric.Integers
      Utils.Util.
 
-From Cofq.SystemF Require Import
-     SystemFDefinitions
-     SystemFSemantics
-     SystemFTyping
-     SystemFUtils
-     SystemFShow.
+From Cofq.SystemK Require Import
+     SystemKDefinitions
+     SystemKSemantics
+     SystemKTyping
+     SystemKUtils
+     SystemKShow
+     SystemFtoSystemK
+.
 
 From Cofq.BaseExpressions Require Import
      IntegersShow
@@ -43,6 +44,66 @@ From ITree Require Import
      Interp.Recursion
      Events.Exception.
 
+From Cofq.SystemF Require Import
+    SystemFDefinitions
+    SystemFSemantics
+    SystemFTest
+.
+
+Unset Guard Checking.
+Fixpoint run_eval (t : ITreeDefinition.itree Failure KRawValue) : MlResult KRawValue string
+  := match observe t with
+     | RetF x => MlOk _ string x
+     | TauF t => run_eval t
+     | VisF _ (Throw msg) k => MlError _ string msg
+     end.
+Set Guard Checking.
+
+Definition factorial_prog := App factorial (Num (Int64.repr 5)).
+
+Definition quit_now := 
+  KAnnotated (KTForall 0 [KIntType]) (  
+  KFix 0 [KIntType] (
+    KHalt KIntType (KAnnotated KIntType (
+      KVar (N.of_nat 0))
+    )
+  )
+).
+
+Definition k_factorial_prog := cps_translate_term factorial_prog quit_now.
+
+
+Definition f_assert_eq (should : Z) (res : MlResult Term string) := 
+  match res with 
+    | MlOk t => match t with
+    | Num n => eq n (Int64.repr should)
+    | _ => false
+    end
+  | MlError _ => false
+  end
+.
+Definition k_assert_eq (should : Z) (res : MlResult KRawValue string) := 
+  match res with
+    | MlOk t => match t with
+    | KNum n => eq n (Int64.repr should)
+    | _ => false
+    end
+  | MlError _ => false
+  end
+.
+
+QuickCheck (k_assert_eq 120 (run_eval (keval_term_loop (k_factorial_prog)))).
+(* QuickCheck (f_assert_eq 120 (SystemFTest.run_eval (eval (factorial_prog)))).*)
+(*
+QuickCheck (match SystemFTest.run_eval (eval () with
+| MlOk t => match t with
+  | Num n => eq n (Int64.repr 120)
+  | _ => false
+  end
+| MlError _ => false
+end
+*)
+(*
 Section Generators.
   Program Fixpoint genFType' (ftv : nat) (sz : nat) {measure sz} : G FType
     := match sz with

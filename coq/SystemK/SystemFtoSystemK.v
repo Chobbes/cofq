@@ -29,8 +29,6 @@ Fixpoint cps_translate_type {I} `{FInt I} (t : FType) : KType :=
     end
 .
 
-Definition nat_as_var_ind (n : nat) : VarInd. Admitted.
-
 (* TODO infer types on the System F side, annotated on the System K side *)
 (* FIXME check everything for variable lifting *)
 Fixpoint cps_translate_term {I} `{FInt I} (t : Term) (k : KValue): KTerm :=
@@ -93,7 +91,7 @@ Fixpoint cps_translate_term {I} `{FInt I} (t : Term) (k : KValue): KTerm :=
         (* TOOD lift the continuation by n, lift each term i by i*)
         (* k_var_list is [KVar n; KVar n - 1; ...; KVar 0], but with type annotations *)
         let k_var_list := fold_right (fun term ret =>
-            let k_var := KVar (nat_as_var_ind (length ret)) in
+            let k_var := KVar (N.of_nat (length ret)) in
             let k_var_ann := KAnnotated (ktypeof term) k_var in
             k_var_ann :: ret
         ) [] terms in
